@@ -1,0 +1,103 @@
+/* index */
+
+#index{background-color:#18191c; position:relative; height:100vh; width:100vw; min-width:1400px; }
+#index:after{display:block; content:''; background-image:url('../img/index_building.svg'); background-repeat:repeat-x; width:100%; height:160px; position:absolute; bottom:0;left:0}
+#logo{width:300px; margin:0 auto 20px}
+#logo img{width:100%}
+#login_box{position:absolute; width:400px; top:45%; left:250px; transform:translate3d(0, -50%, 0)}
+#login_box ul{background-color:rgba(255, 255, 255, .1); padding:30px; border-radius:10px}
+#login_box h3{color:#fff; font-size:48px; text-align:center; padding:0 0 15px 0}
+#login_box ul li{width:100%; margin-bottom:10px}
+#login_box ul li .input{border:1px solid rgba(255, 255, 255, .3); background-color:transparent; position:relative; width:100%; border-radius:50px; height:50px; display:block; padding:5px 10px}
+#login_box ul li .input input{padding-right:30px; width:100%; height:100%; background-color:transparent; border:0; color:#fff}
+#login_box ul li .input input:hover,
+#login_box ul li .input input:focus,
+#login_box ul li .input input:active{background-color:transparent !important}
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+	-webkit-text-fill-color: #000 !important;
+    -webkit-box-shadow: 0 0 0px 1000px #fff inset;
+    box-shadow: 0 0 0px 1000px #fff inset;
+    transition: background-color 5000s ease-in-out 0s;
+}
+#login_box ul li .input input::placeholder{color:#fff; opacity: .5;}
+#login_box ul li .input .icon_login{width:20px; height:auto; position:absolute; top:0; bottom:0; right:15px; margin:auto}
+#index .btn-login{width:100%; height:50px; line-height:50px; font-size:16px; margin-top:20px}
+
+#index .right{position:absolute; right:0; top:50%; transform: translate3d(0, -60%, 0 );}
+#index .right .img_box{width:765px; max-width: 40vw;}
+#index .right .img_box img{width:100%}
+#index .right .txt_box{position: absolute; transform: translate3d(-68%, 25%, 0)}
+#index .right .txt_box h2{font-size:65px; position:relative; color:#fff; text-align:right;padding-bottom:50px; margin-bottom:50px}
+#index .right .txt_box h2:after{display:block; content:''; width:240px; height:7px; background-color:#f07f01; position:absolute; right:0; bottom:0}
+#index .right .txt_box p{font-size:22px; color:#fff; text-align:right}
+
+
+
+
+.searchbox ul li.construction_name .input{width:350px}
+
+/* tender_notice */
+#popupPrediction .popup{width:600px}
+#popupPrediction .modal-body ul:after{display:block; content:''; clear:both}
+#popupPrediction .modal-body ul li{margin-bottom:5px; width:50%; float:left; white-space: nowrap;}
+#popupPrediction .modal-body ul li .tit{width:80px; text-align:right; padding-right:3px; vertical-align: middle}
+#popupPrediction .modal-body ul li .input{width:200px; display:inline-block; }
+#popupPrediction .modal-body ul li .input.cost {position:relative;}
+#popupPrediction .modal-body ul li .input.cost.readonly{border:0}
+#popupPrediction .modal-body ul li .input.cost.readonly input{font-size:17px}
+#popupPrediction .modal-body ul li .input.cost .won{position:absolute; right:5px; font-style:normal}
+#popupPrediction .modal-body ul li .input.cost input{padding-right:20px; text-align:right}
+#popupPrediction .modal-body ul li.btn_wrap{margin:8px auto; padding-bottom:8px;}
+.prediction_successful_bid{background-color:#f2f2f2; padding:8px}
+#popupPrediction .modal-body ul:nth-child(2) li{margin-bottom:0; width:100%}
+#popupPrediction .modal-body{padding-bottom:8px}
+
+/* predict.php */
+#popupPredict {background-color:#fff; width:285px; height:295px; }
+#popupPredictContainer h2{width: calc(100% - 20px); background-color: #333333; margin: 10px auto 0; color: #fff; padding: 10px; text-align: center;}
+#popupPredict ul{padding:10px}
+#popupPredict ul li{margin-bottom:5px; white-space: nowrap;}
+#popupPredict ul li:after{display:block; content:''; clear:both}
+#popupPredict ul li .tit{width:60px; text-align:right; padding-right:3px; vertical-align: middle}
+#popupPredict ul li .input{width:200px; display:inline-block; float:right}
+#popupPredict ul li .input.cost {position:relative;}
+#popupPredict ul li .input.cost.readonly{border:0}
+#popupPredict ul li .input.cost.readonly input{font-size:17px}
+#popupPredict ul li .input.cost .won{position:absolute; right:5px; font-style:normal}
+#popupPredict ul li .input.cost input{padding-right:20px; text-align:right}
+#popupPredict ul li.btn_wrap{margin:8px auto 0}
+#popupPredict ul.prediction_successful_bid {padding:10px}
+#popupPredict ul.prediction_successful_bid li{margin-bottom:0; width:100%}
+
+#popupRemarks .popup{width:500px}
+#popupRemarks .popup .modal-body ul li{margin-bottom:5px}
+#popupRemarks .popup .modal-body ul li:last-child{margin-bottom:0}
+#popupRemarks .popup .tit{width:50px}
+#popupRemarks .popup .input{width:calc(100% - 55px)}
+#popupRemarks .popup .input.readonly input:hover{background-color:#f2f2f2 !important}
+
+/* user_manage */
+#user_manage .table_area,
+#user_manage .pagnav{width:700px}
+
+#popupUser .popup{width:600px}
+#popupUser .modal-body ul:after{display:block; content:''; clear:both}
+#popupUser .modal-body ul li{margin-bottom:5px; width:50%; float:left; white-space: nowrap;}
+#popupUser .modal-body ul li .tit{width:80px; text-align:right; padding-right:3px}
+#popupUser .modal-body ul li .input{width:200px; display:inline-block; }
+#popupUser .modal-body ul li:nth-child(6){width:27%}
+#popupUser .modal-body ul li:nth-child(7){width:20%}
+#popupUser .modal-body ul li .select{width:70px; display:inline-block; }
+#popupUser .modal-body ul li:nth-child(7) .tit{width:55px}
+#popupUser .modal-body ul li .select select{width:100%; min-width:0}
+#popupUser .modal-body ul li.btn_wrap{margin:8px auto; padding-bottom:8px;}
+#popupUser .modal-body{padding-bottom:8px}
+
+.cost_input {position:relative; white-space: nowrap; display:inline-block}
+.cost_input .input{position:relative; padding-right:23px; width:120px; display:inline-block; position:relative;}
+.cost_input .input .won{ position:absolute; top:-2px; bottom:0; right:5px; width:15px; height:15px; font-style:normal}
+
+#prediction_list .table_area{overflow:auto}

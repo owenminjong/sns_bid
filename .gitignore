@@ -1,0 +1,26 @@
+# DB 접속 정보 (절대 올리면 안됨!)
+ajax/var_db.php
+ajax/_config.php
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# 로그 파일
+log/
+*.log
+
+# 학습 모델 파일 (용량 큼)
+python/*.joblib
+
+# 학습 데이터 CSV (용량 큼)
+python/*.csv
+
+# IDE 설정
+.idea/
+*.iml
+
+# 운영체제 파일
+.DS_Store
+Thumbs.db

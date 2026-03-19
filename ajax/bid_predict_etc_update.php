@@ -1,0 +1,58 @@
+<?php
+header("Content-Type:application/json;charset=utf-8");
+// header('Access-Control-Allow-Origin: *');
+// header("Access-Control-Allow-Headers: X-API-KEY, Origin, X-Requested-With, Content-Type, Accept, Access-Control-Request-Method");
+// header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+header("Cache-Control: no-cache");
+header("Pragma: no-cache");
+
+include "./_config.php";
+
+try {
+  $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8", $dbuser, $dbpass);
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $ex) {
+  http_response_code(500);
+  echo json_encode(array("msg" => $ex->getMessage()), JSON_UNESCAPED_UNICODE);
+  return false;
+}
+
+$psn = $_REQUEST["psn"];
+$betc = $_REQUEST["betc"];
+
+try {
+  if ( empty($member['id']) )throw new Exception("로그인 상태가 아닙니다. 로그인해주세요.");
+  if ( $psn == "" || strlen($psn) == "0" )throw new Exception("없는 자료이거나 잘못된 자료입니다.");
+
+  $sql = "CALL bid_predict_etc_update(:psn, :betc)";
+  $sql_log = "CALL bid_predict_etc_update($psn, '$betc')";
+  //error_log($sql_log."\n", 3, "../log/log-".date("Ymd").".log");
+
+  $stmt = $pdo->prepare($sql);
+
+  $stmt->bindValue(":psn", $psn);
+  $stmt->bindValue(":betc", $betc);
+
+  $result = $stmt->execute();
+
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+  $ret = $row["ret"];
+  $err = $row["err"];
+  $state = $row["state"]; // SQL state
+  $msg = $row["msg"];     // SQL system message
+
+  if ($ret <= 0) throw new Exception("$err|$msg");
+
+  http_response_code(200);
+  echo json_encode($row, JSON_UNESCAPED_UNICODE);
+} catch (Exception $ex) {
+  http_response_code(500);
+  $buf = explode("|", $ex->getMessage());
+
+  if (count($buf) >= 2)
+    echo json_encode(array("msg" => $buf[0], "err" => $buf[1]), JSON_UNESCAPED_UNICODE);
+  else
+    echo json_encode(array("msg" => $buf[0], "err" => ""), JSON_UNESCAPED_UNICODE);
+}
+?>
