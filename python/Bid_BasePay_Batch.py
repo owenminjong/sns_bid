@@ -27,7 +27,7 @@ def Str2Int(para):
 
 # 기초금액, 순공사원가, A값 API
 def bid_Crawing(bid_no, bid_seq):
-    api_key2 = 'IpFyUrZ%2BJhBLmL5gOgjYwipr7VI7NmMSKEinqBcZfCthDoEwtRDG0cv0mYVArvMdRZWPyTFcpwFn6lyG9LFEbw%3D%3D'
+    api_key2 = '1n3WT%2BGYJGBA7V30qucc26fPsR%2BCVb51GHwG%2BtZFKRtnpYRk3T%2FtbmafOvzkDP%2BAbE867T6jzgYFfeAy51aMSQ%3D%3D'
     result = [-1, -1, -1]      # 기초금액, 순공사원가, A값
     #http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount?inqryDiv=1&inqryBgnDt=201605010000&inqryEndDt=201605052359&pageNo=1&numOfRows=10&ServiceKey=lLKaCvcFJIih35CZK%2B1QMDTOJJdWEfl5qkzTtRYubhEfDkJY4GbJTp1hA0TuYXIm0gaB%2B1eM32q3ZFBv%2B14qPA%3D%3D
     url = 'http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount?inqryDiv=2&pageNo=1&numOfRows=10&ServiceKey='+api_key2+'&bidNtceNo='+bid_no
@@ -75,7 +75,7 @@ def bid_Crawing(bid_no, bid_seq):
 
 page = 1
 #api_key ='lLKaCvcFJIih35CZK%2B1QMDTOJJdWEfl5qkzTtRYubhEfDkJY4GbJTp1hA0TuYXIm0gaB%2B1eM32q3ZFBv%2B14qPA%3D%3D'
-api_key ='o4Ur22E710dOJBYYqzBWaSbcXJyaTOaFgawVrRX9TbPyZx6cK4nPgjlI%2B8Yv7mbdkkx0jopil7iPXP3SDPzhSQ%3D%3D'
+api_key ='1n3WT%2BGYJGBA7V30qucc26fPsR%2BCVb51GHwG%2BtZFKRtnpYRk3T%2FtbmafOvzkDP%2BAbE867T6jzgYFfeAy51aMSQ%3D%3D'
 
 # 정상적으로 저장된 입찰공고일자의 익일을 조회 
 start_date = ''

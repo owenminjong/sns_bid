@@ -25,7 +25,7 @@ def Str2Int(para):
         return int(para)
 
 #api_key ='lLKaCvcFJIih35CZK%2B1QMDTOJJdWEfl5qkzTtRYubhEfDkJY4GbJTp1hA0TuYXIm0gaB%2B1eM32q3ZFBv%2B14qPA%3D%3D'
-api_key ='o4Ur22E710dOJBYYqzBWaSbcXJyaTOaFgawVrRX9TbPyZx6cK4nPgjlI%2B8Yv7mbdkkx0jopil7iPXP3SDPzhSQ%3D%3D'
+api_key ='1n3WT%2BGYJGBA7V30qucc26fPsR%2BCVb51GHwG%2BtZFKRtnpYRk3T%2FtbmafOvzkDP%2BAbE867T6jzgYFfeAy51aMSQ%3D%3D'
 
 # 기초금액, 순공사원가, A값 크롤링 함수 (최대 10회 크롤링)
 def bid_Crawing(bid_no, bid_seq):
