@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import pymysql
 from datetime import datetime, timedelta
 
-exec(open('/home/snsbid/python/public_db.py', encoding='utf-8').read())
+exec(open('C:\\xampp\\htdocs\\snsbid\\python\\public_db.py', encoding='utf-8').read())
 #exec(open('public_db.py', encoding='utf-8').read())
 
 # DB 접속
