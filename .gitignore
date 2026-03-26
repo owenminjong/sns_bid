@@ -24,3 +24,14 @@ python/*.csv
 # 운영체제 파일
 .DS_Store
 Thumbs.db
+
+# 환경변수 (DB, API키)
+.env
+snsbid_api/.env
+
+# FastAPI 모델 파일
+snsbid_api/app/ai/models/
+
+# 가상환경
+venv/
+.venv/
