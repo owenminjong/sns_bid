@@ -1,8 +1,6 @@
 <?php
+error_reporting(0);  // 경고 출력 억제
 header("Content-Type:application/json;charset=utf-8");
-// header('Access-Control-Allow-Origin: *');
-// header("Access-Control-Allow-Headers: X-API-KEY, Origin, X-Requested-With, Content-Type, Accept, Access-Control-Request-Method");
-// header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
 header("Cache-Control: no-cache");
 header("Pragma: no-cache");
 

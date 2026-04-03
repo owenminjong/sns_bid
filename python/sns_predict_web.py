@@ -42,20 +42,20 @@ else:
         }
     # DataFrame 생성
 df = pd.DataFrame(data,index=[0])
-df = df.set_index('공고번호')   
+df = df.set_index('공고번호')
 
 # 모델 불러오기
 if 순공사원가 > 0:
-    loaded_model = joblib.load('../../../python/sns_random_sun.joblib')
+    loaded_model = joblib.load('./sns_random_sun.joblib')
 else:
     if 기초금액<=1000000000:
-        loaded_model = joblib.load('../../../python/sns_random_10.joblib')
+        loaded_model = joblib.load('./sns_random_10.joblib')
     elif 기초금액<=3000000000:
-        loaded_model = joblib.load('../../../python/sns_random_30.joblib')
+        loaded_model = joblib.load('./sns_random_30.joblib')
     elif 기초금액<=5000000000:
-        loaded_model = joblib.load('../../../python/sns_random_50.joblib')
+        loaded_model = joblib.load('./sns_random_50.joblib')
     else:
-        loaded_model = joblib.load('../../../python/sns_random_50up.joblib')
+        loaded_model = joblib.load('./sns_random_50up.joblib')
 
 # 테스트 데이터에 대한 예측 수행
 predictions = loaded_model.predict(df)

@@ -65,7 +65,7 @@
                 <td><a href="javascript" class="btn_link" data-bs-toggle="modal" data-bs-target="#popupUser">홍길동</a></td>
                 <td>YES</td>
                 <td>010-0000-0000</td>
-                <td>bonobo</td>
+                <td>owen</td>
                 <td class="bg-primary2">사용</td>
                 <td>2024-11-28 13:44</td>
               </tr>
@@ -73,7 +73,7 @@
                 <td><a href="javascript" class="btn_link" data-bs-toggle="modal" data-bs-target="#popupUser">홍길동</a></td>
                 <td>YES</td>
                 <td>010-0000-0000</td>
-                <td>bonobo</td>
+                <td>owen</td>
                 <td class="bg-greengray">사용안함</td>
                 <td>2024-11-28 13:44</td>
               </tr>-->
