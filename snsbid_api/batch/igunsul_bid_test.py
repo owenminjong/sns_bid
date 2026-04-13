@@ -20,8 +20,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================================
 
 # 쿠키 (세션 만료 시 갱신)
-PHPSESSID       = "3esd3hp08phoeici4fj6eckicjk9c6k6"
-SESSION_IGUNSUL = "134f8303d05e96f4f1d60e54a5767d1a"
+PHPSESSID       = "slfki05famdlia7d1vdikns0ujn9h6ui"
+SESSION_IGUNSUL = "2ec6cf8ce208bda03970d942b2701c56"
 
 PART  = "1"    # 1=시설 고정
 LOCAL = "20"   # 지역코드 (20=전체 추정, 추후 확인)
