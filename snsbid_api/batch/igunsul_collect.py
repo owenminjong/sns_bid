@@ -1,9 +1,13 @@
 """
-아이건설넷 입찰공고 수집기 v1.1
+아이건설넷 입찰공고 수집기 v1.3
 ====================================
-1단계: 입찰 리스트 수집
-2단계: 세부페이지 수집 (A값, 순공사원가, 예가범위 등)
-3단계: 구글시트 저장
+1단계: 신규 공고 수집 (리스트 + 세부페이지)
+2단계: 재확인_대기 시트 처리 (기초금액/A값 없는 것 재수집)
+3단계: 구글시트 저장 / 업데이트
+
+시트 구조:
+  입찰공고_YYYY-MM-DD  ← 날짜별 수집 데이터
+  재확인_대기          ← 기초금액/A값 없는 bbscode 목록
 
 파일경로: snsbid_api/batch/igunsul_collect.py
 """
@@ -34,24 +38,25 @@ RE_DATE2     = "2026-03-30"
 IPCHAL_DATE1 = "2026-03-30"
 IPCHAL_DATE2 = "2026-04-30"
 
-LIMIT            = 10  # 테스트: 10건
+LIMIT            = 10   # 테스트: 10건 / 전체: 0 (0이면 전체)
 SHEET_ID         = "1dBvLESadURrrt0WWU0-HMBeBOYEl5w0rwZi_wJEo3_Y"
 CREDENTIALS_FILE = "batch/service_account.json"
 REQUEST_DELAY    = 1.5
 
+# 재확인 대기 시트명
+PENDING_SHEET = "재확인_대기"
+
 # ============================================================
-# 컬럼 정의 (순서 고정)
+# 컬럼 정의
 # ============================================================
 
 COLUMNS = [
-    # 기본
     "수집일자",
     "bbscode",
     "공고번호",
     "공고차수",
     "공고명",
     "태그",
-    # 공고내용
     "종목",
     "대업종",
     "수요기관",
@@ -59,17 +64,13 @@ COLUMNS = [
     "지역제한_상세",
     "계약방법",
     "담당자",
-    # 금액
     "기초금액",
     "추정가격",
     "투찰률_하한율",
     "A값",
     "순공사원가",
-    "낙찰하한가",
     "예가범위",
-    # 낙찰방법
     "낙찰방법",
-    # 일정
     "공고일",
     "등록마감일",
     "투찰시작일",
@@ -77,11 +78,21 @@ COLUMNS = [
     "개찰일",
 ]
 
+AMOUNT_COLUMNS = ["기초금액", "추정가격", "A값", "순공사원가"]
+
+# 재확인 대기 시트 컬럼
+PENDING_COLUMNS = [
+    "bbscode",
+    "원본시트",
+    "최초수집일",
+    "미확정항목",   # 기초금액/A값 중 없는 것
+]
+
 # ============================================================
 
 BASE_URL = "https://www.igunsul.net"
 
-HEADERS = {
+REQ_HEADERS = {
     "Host": "www.igunsul.net",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -107,13 +118,67 @@ class SSLAdapter(requests.adapters.HTTPAdapter):
 
 
 # ============================================================
+# 유틸 함수
+# ============================================================
+
+def clean(text):
+    return re.sub(r"\s+", " ", text).strip() if text else ""
+
+
+def format_amount(value):
+    if not value:
+        return ""
+    nums = re.sub(r"[^\d]", "", str(value))
+    if not nums:
+        return ""
+    try:
+        return f"{int(nums):,}"
+    except Exception:
+        return str(value)
+
+
+def parse_notice_no(full_no):
+    match = re.match(r'^(.+)-(\d{3})$', full_no)
+    if match:
+        return match.group(1), match.group(2)
+    return full_no, ""
+
+
+def has_tag(tags_str, tag):
+    """태그 문자열에서 특정 태그 포함 여부"""
+    return tag in tags_str
+
+
+def get_missing_items(row):
+    """
+    기초금액/A값 중 태그는 있는데 값이 없는 항목 반환
+    태그 없으면 원래부터 없는 공고이므로 제외
+    """
+    missing = []
+    tags = row.get("태그", "")
+
+    # 기초금액: 태그 있는데 값 없는 경우
+    if has_tag(tags, "기초") and not row.get("기초금액", ""):
+        missing.append("기초금액")
+
+    # A값: 태그 있는데 값 없거나 0인 경우
+    if has_tag(tags, "A값"):
+        a_val = row.get("A값", "")
+        a_num = re.sub(r"[^\d]", "", str(a_val))
+        if not a_num or int(a_num) == 0:
+            missing.append("A값")
+
+    return missing
+
+
+# ============================================================
 # 세션
 # ============================================================
 
 def get_session():
     session = requests.Session()
     session.mount("https://", SSLAdapter())
-    session.headers.update(HEADERS)
+    session.headers.update(REQ_HEADERS)
     session.cookies.set("PHPSESSID",        PHPSESSID,        domain=".igunsul.net")
     session.cookies.set("session_igunsul",  SESSION_IGUNSUL,  domain=".igunsul.net")
     session.cookies.set("junja",            "1",              domain=".igunsul.net")
@@ -158,10 +223,6 @@ def fetch_bid_list(session):
     return resp.text
 
 
-def clean(text):
-    return re.sub(r"\s+", " ", text).strip() if text else ""
-
-
 def parse_bid_list(html):
     soup = BeautifulSoup(html, "html.parser")
     anchors = soup.find_all("a", class_="list2detailAnchor")
@@ -190,51 +251,46 @@ def parse_bid_list(html):
         else:
             공고명 = ""
 
-        # 공고번호 + 차수 분리
+        # 공고번호 + 차수
         no_label = tr.find("label", style=lambda s: s and "5c667b" in s)
-        full_no = no_label.get_text(strip=True).strip("[]") if no_label else ""
-        # R26BK01430897-000 → 공고번호: R26BK01430897, 차수: 000
-        if "-" in full_no:
-            공고번호, 공고차수 = full_no.rsplit("-", 1)
-        else:
-            공고번호, 공고차수 = full_no, ""
+        full_no  = no_label.get_text(strip=True).strip("[]") if no_label else ""
+        공고번호, 공고차수 = parse_notice_no(full_no)
 
         # 기초금액 / 추정가격
-        기초div = tds[6].find("div", class_="ta-cost fc_blue_list") if len(tds) > 6 else None
-        추정div = tds[6].find("div", class_="ta-cost fc_red_list") if len(tds) > 6 else None
-        기초금액 = 기초div.get_text(strip=True).replace(",", "") if 기초div else val[4]
-        추정가격 = 추정div.get_text(strip=True).replace(",", "") if 추정div else val[9]
+        기초div  = tds[6].find("div", class_="ta-cost fc_blue_list") if len(tds) > 6 else None
+        추정div  = tds[6].find("div", class_="ta-cost fc_red_list")  if len(tds) > 6 else None
+        기초금액 = format_amount(기초div.get_text(strip=True).replace(",", "") if 기초div else val[4])
+        추정가격 = format_amount(추정div.get_text(strip=True).replace(",", "") if 추정div else val[9])
 
         # 태그
         tags = [t.get_text(strip=True) for t in tr.find_all("label", class_="ij_tag")]
 
         results.append({
-            "수집일자":     "",
-            "bbscode":     val[0],
-            "공고번호":     공고번호,
-            "공고차수":     공고차수,
-            "공고명":       공고명,
-            "태그":         " ".join(tags),
-            "종목":         clean(tds[4].get_text()) if len(tds) > 4 else "",
-            "대업종":       clean(tds[5].get_text()) if len(tds) > 5 else "",
-            "수요기관":     clean(tds[7].get_text()) if len(tds) > 7 else "",
-            "지역":         clean(tds[8].get_text()) if len(tds) > 8 else "",
+            "수집일자":      "",
+            "bbscode":      val[0],
+            "공고번호":      공고번호,
+            "공고차수":      공고차수,
+            "공고명":        공고명,
+            "태그":          " ".join(tags),
+            "종목":          clean(tds[4].get_text()) if len(tds) > 4 else "",
+            "대업종":        clean(tds[5].get_text()) if len(tds) > 5 else "",
+            "수요기관":      clean(tds[7].get_text()) if len(tds) > 7 else "",
+            "지역":          clean(tds[8].get_text()) if len(tds) > 8 else "",
             "지역제한_상세": "",
-            "계약방법":     "",
-            "담당자":       "",
-            "기초금액":     기초금액,
-            "추정가격":     추정가격,
+            "계약방법":      "",
+            "담당자":        "",
+            "기초금액":      기초금액,
+            "추정가격":      추정가격,
             "투찰률_하한율": val[5],
-            "A값":          "",
-            "순공사원가":   "",
-            "낙찰하한가":   "",
-            "예가범위":     "",
-            "낙찰방법":     "",
-            "공고일":       clean(tds[15].get_text()) if len(tds) > 15 else "",
-            "등록마감일":   clean(tds[10].get_text()) if len(tds) > 10 else "",
-            "투찰시작일":   clean(tds[12].get_text()) if len(tds) > 12 else "",
-            "투찰마감일":   clean(tds[13].get_text()) if len(tds) > 13 else "",
-            "개찰일":       val[11],
+            "A값":           "",
+            "순공사원가":    "",
+            "예가범위":      "",
+            "낙찰방법":      "",
+            "공고일":        clean(tds[15].get_text()) if len(tds) > 15 else "",
+            "등록마감일":    clean(tds[10].get_text()) if len(tds) > 10 else "",
+            "투찰시작일":    clean(tds[12].get_text()) if len(tds) > 12 else "",
+            "투찰마감일":    clean(tds[13].get_text()) if len(tds) > 13 else "",
+            "개찰일":        val[11],
         })
 
     return results
@@ -256,14 +312,13 @@ def fetch_bid_detail(session, bbscode):
 def parse_bid_detail(html):
     soup = BeautifulSoup(html, "html.parser")
     result = {
-        "A값":          "",
-        "순공사원가":   "",
-        "낙찰하한가":   "",
-        "예가범위":     "",
-        "낙찰방법":     "",
-        "계약방법":     "",
+        "A값":           "",
+        "순공사원가":    "",
+        "예가범위":      "",
+        "낙찰방법":      "",
+        "계약방법":      "",
         "지역제한_상세": "",
-        "담당자":       "",
+        "담당자":        "",
     }
 
     for th in soup.find_all("th"):
@@ -275,18 +330,14 @@ def parse_bid_detail(html):
 
         if th_text == "A값":
             nums = re.findall(r"[\d,]+", td_text)
-            result["A값"] = nums[0].replace(",", "") if nums else ""
+            result["A값"] = format_amount(nums[0]) if nums else ""
 
         elif th_text == "순공사원가":
             nums = re.findall(r"[\d,]+", td_text)
-            result["순공사원가"] = nums[0].replace(",", "") if nums else ""
-
-        elif th_text == "낙찰하한가":
-            nums = re.findall(r"[\d,]+", td_text)
-            result["낙찰하한가"] = nums[0].replace(",", "") if nums else ""
+            result["순공사원가"] = format_amount(nums[0]) if nums else ""
 
         elif th_text == "예가범위":
-            result["예가범위"] = td_text  # +3% ~ -3%
+            result["예가범위"] = td_text
 
         elif th_text == "낙찰방법":
             result["낙찰방법"] = td_text[:100]
@@ -304,7 +355,7 @@ def parse_bid_detail(html):
 
 
 # ============================================================
-# 3단계: 구글시트 저장
+# 구글시트 연결
 # ============================================================
 
 def get_sheet():
@@ -313,21 +364,26 @@ def get_sheet():
         "https://www.googleapis.com/auth/drive",
     ]
     creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
-    gc = gspread.authorize(creds)
+    gc    = gspread.authorize(creds)
     return gc.open_by_key(SHEET_ID)
 
 
-def get_or_create_sheet(sh, sheet_name):
+def get_or_create_sheet(sh, sheet_name, cols=None):
     try:
         ws = sh.worksheet(sheet_name)
         print(f"  [시트] 기존 시트: {sheet_name}")
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=sheet_name, rows=1000, cols=len(COLUMNS))
+        col_count = cols if cols else 30
+        ws = sh.add_worksheet(title=sheet_name, rows=2000, cols=col_count)
         print(f"  [시트] 새 시트 생성: {sheet_name}")
     return ws
 
 
-def save_to_sheet(ws, rows, today_str):
+# ============================================================
+# 3단계: 입찰공고 시트 저장
+# ============================================================
+
+def save_bid_sheet(ws, rows, today_str):
     existing = ws.get_all_values()
 
     # 헤더 확인 및 추가
@@ -336,23 +392,22 @@ def save_to_sheet(ws, rows, today_str):
         print(f"  [시트] 헤더 추가")
         existing = ws.get_all_values()
 
-    # 기존 bbscode 목록 (중복 방지)
-    existing_bbscodes = set()
+    # 기존 bbscode 목록
+    existing_bbscodes = {}
     if len(existing) > 1:
         try:
             bbscode_idx = COLUMNS.index("bbscode")
-            existing_bbscodes = {
-                row[bbscode_idx]
-                for row in existing[1:]
-                if len(row) > bbscode_idx
-            }
+            for row_idx, row in enumerate(existing[1:], start=2):
+                if len(row) > bbscode_idx:
+                    existing_bbscodes[row[bbscode_idx]] = row_idx
         except Exception:
             pass
 
-    added = 0
+    added   = 0
     skipped = 0
     for row in rows:
-        if str(row["bbscode"]) in existing_bbscodes:
+        bbs = str(row["bbscode"])
+        if bbs in existing_bbscodes:
             skipped += 1
             continue
 
@@ -367,6 +422,170 @@ def save_to_sheet(ws, rows, today_str):
 
 
 # ============================================================
+# 재확인_대기 시트 처리
+# ============================================================
+
+def get_pending_sheet(sh):
+    """재확인_대기 시트 가져오기 (없으면 생성)"""
+    ws = get_or_create_sheet(sh, PENDING_SHEET, cols=len(PENDING_COLUMNS))
+    existing = ws.get_all_values()
+    if not existing or not existing[0] or existing[0][0] != "bbscode":
+        ws.insert_row(PENDING_COLUMNS, 1)
+        print(f"  [대기] 헤더 추가")
+    return ws
+
+
+def add_to_pending(ws_pending, rows, today_str, sheet_name):
+    """기초금액/A값 없는 공고를 재확인_대기에 추가"""
+    existing = ws_pending.get_all_values()
+    existing_bbscodes = set()
+    if len(existing) > 1:
+        existing_bbscodes = {row[0] for row in existing[1:] if row}
+
+    added = 0
+    for row in rows:
+        missing = get_missing_items(row)
+        if not missing:
+            continue
+
+        bbs = str(row["bbscode"])
+        if bbs in existing_bbscodes:
+            continue
+
+        pending_row = [
+            bbs,
+            sheet_name,
+            today_str,
+            "/".join(missing),
+        ]
+        ws_pending.append_row(pending_row)
+        added += 1
+        time.sleep(0.3)
+
+    if added:
+        print(f"  [대기] 재확인 대기 추가: {added}건")
+    return added
+
+
+def process_pending(session, sh, ws_pending, today_str):
+    """
+    재확인_대기 처리:
+    - 세부페이지 재수집
+    - 값 생기면 원본 시트 업데이트 + 대기에서 삭제
+    - 값 없으면 유지
+    """
+    existing = ws_pending.get_all_values()
+    if len(existing) <= 1:
+        print("  [대기] 재확인 대기 없음")
+        return
+
+    pending_rows = existing[1:]
+    print(f"  [대기] 재확인 대기: {len(pending_rows)}건")
+
+    # 원본 시트 캐시
+    sheet_cache = {}
+    completed_indices = []  # 삭제할 행 인덱스 (역순 삭제용)
+
+    for idx, pending in enumerate(pending_rows, start=2):
+        if not pending or not pending[0]:
+            continue
+
+        bbs         = pending[0]
+        origin_name = pending[1]
+        missing     = pending[3].split("/") if len(pending) > 3 else []
+
+        print(f"  [{idx-1}/{len(pending_rows)}] bbscode:{bbs} 재확인 중...")
+
+        try:
+            # 세부페이지 재수집
+            detail_html = fetch_bid_detail(session, bbs)
+            detail      = parse_bid_detail(detail_html)
+            time.sleep(REQUEST_DELAY)
+
+            # 값이 생겼는지 확인
+            resolved = []
+            if "기초금액" in missing:
+                # 기초금액은 리스트에서 오므로 세부페이지에서 직접 파싱
+                # 여기선 A값으로 간접 확인 (기초금액은 리스트 재수집 필요)
+                pass
+            if "A값" in missing:
+                a_val = detail.get("A값", "")
+                a_num = re.sub(r"[^\d]", "", str(a_val))
+                if a_num and int(a_num) > 0:
+                    resolved.append("A값")
+
+            if not resolved and "기초금액" not in missing:
+                print(f"    → 아직 미확정")
+                continue
+
+            # 원본 시트에서 해당 행 찾아서 업데이트
+            if origin_name not in sheet_cache:
+                try:
+                    sheet_cache[origin_name] = sh.worksheet(origin_name)
+                except Exception:
+                    print(f"    ❌ 원본 시트 없음: {origin_name}")
+                    continue
+
+            ws_origin = sheet_cache[origin_name]
+            origin_data = ws_origin.get_all_values()
+
+            # bbscode 컬럼 인덱스
+            if not origin_data:
+                continue
+            try:
+                bbs_col_idx = origin_data[0].index("bbscode")
+            except ValueError:
+                continue
+
+            # 해당 행 찾기
+            target_row_idx = None
+            for r_idx, r in enumerate(origin_data[1:], start=2):
+                if len(r) > bbs_col_idx and r[bbs_col_idx] == bbs:
+                    target_row_idx = r_idx
+                    break
+
+            if not target_row_idx:
+                print(f"    ❌ 원본 시트에서 행 못찾음: bbscode={bbs}")
+                continue
+
+            # 업데이트할 컬럼들
+            update_map = {}
+            if "A값" in resolved:
+                update_map["A값"] = detail.get("A값", "")
+            if detail.get("순공사원가"):
+                update_map["순공사원가"] = detail.get("순공사원가", "")
+
+            for col_name, new_val in update_map.items():
+                try:
+                    col_idx = origin_data[0].index(col_name) + 1  # 1-based
+                    ws_origin.update_cell(target_row_idx, col_idx, new_val)
+                    time.sleep(0.2)
+                    print(f"    ✅ {col_name} 업데이트: {new_val}")
+                except Exception as e:
+                    print(f"    ❌ {col_name} 업데이트 실패: {e}")
+
+            # 완전히 해결됐으면 대기 목록에서 삭제 예약
+            remaining_missing = [m for m in missing if m not in resolved and m != "기초금액"]
+            if not remaining_missing:
+                completed_indices.append(idx)
+                print(f"    ✅ 재확인 완료 → 대기 목록에서 제거 예약")
+
+        except Exception as e:
+            print(f"    ❌ 오류: {e}")
+
+    # 완료된 행 역순으로 삭제 (위에서부터 삭제하면 인덱스 틀어짐)
+    for row_idx in sorted(completed_indices, reverse=True):
+        try:
+            ws_pending.delete_rows(row_idx)
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"  ❌ 대기 행 삭제 오류: {e}")
+
+    if completed_indices:
+        print(f"  [대기] {len(completed_indices)}건 재확인 완료 → 대기 목록 삭제")
+
+
+# ============================================================
 # 메인
 # ============================================================
 
@@ -376,12 +595,18 @@ def main():
 
     print("=" * 60)
     print(f"  아이건설넷 입찰공고 수집")
-    print(f"  날짜: {today_str} / 테스트: {LIMIT}건")
+    print(f"  날짜: {today_str} / 제한: {LIMIT if LIMIT else '전체'}건")
     print("=" * 60)
 
     session = get_session()
+    sh      = get_sheet()
 
-    # 1단계: 리스트
+    # ── 재확인_대기 처리 ──────────────────────────────
+    print("\n[재확인 처리] 기존 대기 건 확인")
+    ws_pending = get_pending_sheet(sh)
+    process_pending(session, sh, ws_pending, today_str)
+
+    # ── 신규 공고 수집 ────────────────────────────────
     print("\n[1단계] 리스트 수집")
     html     = fetch_bid_list(session)
     all_rows = parse_bid_list(html)
@@ -391,9 +616,9 @@ def main():
         print("  ❌ 데이터 없음. 쿠키 만료 확인")
         return
 
-    target = all_rows[:LIMIT]
+    target = all_rows[:LIMIT] if LIMIT else all_rows
 
-    # 2단계: 세부페이지
+    # ── 세부페이지 수집 ───────────────────────────────
     print(f"\n[2단계] 세부페이지 수집 ({len(target)}건)")
     for i, row in enumerate(target, 1):
         print(f"  [{i}/{len(target)}] {row['공고명'][:35]}...")
@@ -401,33 +626,44 @@ def main():
             detail_html = fetch_bid_detail(session, row["bbscode"])
             detail      = parse_bid_detail(detail_html)
             row.update(detail)
-            print(f"    A값:{row['A값']} / 순공사:{row['순공사원가']} / 예가범위:{row['예가범위']} / 계약:{row['계약방법']}")
+            print(f"    A값:{row['A값']} / 순공사:{row['순공사원가']} / 예가:{row['예가범위']}")
         except Exception as e:
             print(f"    ❌ 오류: {e}")
         time.sleep(REQUEST_DELAY)
 
-    # 3단계: 구글시트
-    print(f"\n[3단계] 구글시트 저장")
+    # ── 구글시트 저장 ─────────────────────────────────
+    print(f"\n[3단계] 구글시트 저장 → {sheet_name}")
     try:
-        sh    = get_sheet()
-        ws    = get_or_create_sheet(sh, sheet_name)
-        added = save_to_sheet(ws, target, today_str)
-        print(f"\n✅ 완료! {added}건 → 시트: {sheet_name}")
+        ws    = get_or_create_sheet(sh, sheet_name, cols=len(COLUMNS))
+        added = save_bid_sheet(ws, target, today_str)
+
+        # 재확인 대기 추가
+        print(f"\n[4단계] 재확인 대기 등록")
+        add_to_pending(ws_pending, target, today_str, sheet_name)
+
+        print(f"\n✅ 완료! {added}건 저장 → {sheet_name}")
         print(f"   https://docs.google.com/spreadsheets/d/{SHEET_ID}")
+
     except Exception as e:
         print(f"\n❌ 구글시트 오류: {e}")
         import traceback
         traceback.print_exc()
 
-    # 콘솔 미리보기
+    # ── 콘솔 미리보기 ─────────────────────────────────
     print("\n" + "=" * 60)
+    print("  수집 결과 미리보기")
+    print("=" * 60)
     for i, row in enumerate(target, 1):
-        print(f"[{i}] {row['공고명'][:40]}")
-        print(f"     공고번호: {row['공고번호']}-{row['공고차수']}")
-        print(f"     기초:{row['기초금액']} / A값:{row['A값']} / 순공사:{row['순공사원가']}")
-        print(f"     예가범위:{row['예가범위']} / 계약:{row['계약방법']} / 낙찰하한가:{row['낙찰하한가']}")
-        print(f"     지역제한:{row['지역제한_상세']} / 담당자:{row['담당자']}")
-        print()
+        missing = get_missing_items(row)
+        flag    = f" ⚠️ 재확인대기({'/'.join(missing)})" if missing else ""
+        print(f"\n[{i}] {row['공고명'][:40]}{flag}")
+        print(f"     공고번호  : {row['공고번호']}-{row['공고차수']}")
+        print(f"     기초금액  : {row['기초금액']}")
+        print(f"     A값       : {row['A값']}")
+        print(f"     순공사원가: {row['순공사원가']}")
+        print(f"     예가범위  : {row['예가범위']}")
+        print(f"     계약방법  : {row['계약방법']}")
+        print(f"     개찰일    : {row['개찰일']}")
 
 
 if __name__ == "__main__":
