@@ -26,8 +26,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ★ 설정값
 # ============================================================
 
-PHPSESSID       = "q2efmi1cr7kruneapfkk2429upalktlr"
-SESSION_IGUNSUL = "8561933f7ecc8280f0fee1b4a815a00f"
+PHPSESSID       = "3v5laqmiapb6svr4f8095rrabvn8v51m"
+SESSION_IGUNSUL = "b2dd3b225f00b7d8b5d25122acf54b61"
 
 PART         = "79"
 LOCAL        = "6"
