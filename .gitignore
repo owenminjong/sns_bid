@@ -13,6 +13,7 @@ log/
 
 # 학습 모델 파일 (용량 큼)
 python/*.joblib
+*.joblib
 
 # 학습 데이터 CSV (용량 큼)
 python/*.csv
@@ -27,11 +28,19 @@ Thumbs.db
 
 # 환경변수 (DB, API키)
 .env
-snsbid_api/.env
 
 # FastAPI 모델 파일
+app/ai/models/
 snsbid_api/app/ai/models/
+
+# 빌드 산출물
+*.egg-info/
+dist/
+build/
 
 # 가상환경
 venv/
 .venv/
+
+# 구글 서비스 계정 키
+snsbid_api/batch/service_account.json
