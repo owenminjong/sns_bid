@@ -1,33 +1,29 @@
 """
 이건설 (igunsul.net) 입찰공고 크롤링 테스트
-=============================================
-- 공종: 시설(part=1) 고정
-- 테스트: 5건만 콘솔 출력
 파일 경로: snsbid_api/batch/igunsul_bid_test.py
 """
-
 import requests
 import ssl
 import urllib3
 from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 import re
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+load_dotenv()
+
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ============================================================
-# ★ 설정값
-# ============================================================
+PHPSESSID       = os.getenv("IGUNSUL_PHPSESSID", "")
+SESSION_IGUNSUL = os.getenv("IGUNSUL_SESSION", "")
 
-# 쿠키 (세션 만료 시 갱신)
-PHPSESSID       = "q2efmi1cr7kruneapfkk2429upalktlr"
-SESSION_IGUNSUL = "78aeb3c72136b9610f398992b2f94b19"
-
-PART  = "1"    # 1=시설 고정
-LOCAL = "20"   # 지역코드 (20=전체 추정, 추후 확인)
+PART  = "1"
+LOCAL = "20"
 LIMIT = 5
-
-# ============================================================
 
 BASE_URL   = "https://www.igunsul.net"
 TARGET_URL = f"{BASE_URL}/bid"
@@ -44,11 +40,6 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
-
-# ============================================================
-# SSL 우회
-# ============================================================
-
 class SSLAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
         ctx = ssl.create_default_context()
@@ -58,11 +49,6 @@ class SSLAdapter(HTTPAdapter):
         kwargs["ssl_context"] = ctx
         super().init_poolmanager(*args, **kwargs)
 
-
-# ============================================================
-# 함수
-# ============================================================
-
 def get_session():
     session = requests.Session()
     session.mount("https://", SSLAdapter())
@@ -70,12 +56,8 @@ def get_session():
     session.cookies.set("session_igunsul", SESSION_IGUNSUL, domain=".igunsul.net")
     return session
 
-
 def fetch_page(session):
-    payload = {
-        "part":  PART,
-        "local": LOCAL,
-    }
+    payload = {"part": PART, "local": LOCAL}
     print(f"[요청] POST {TARGET_URL} | part={PART} local={LOCAL}")
     resp = session.post(TARGET_URL, data=payload, headers=HEADERS, timeout=30, verify=False)
     resp.raise_for_status()
@@ -83,12 +65,7 @@ def fetch_page(session):
     print(f"[응답] 상태코드: {resp.status_code}, 크기: {len(resp.text):,}자")
     return resp.text
 
-
 def parse_con_num(value):
-    """
-    con_num value 파싱
-    형식: bbscode/연도/코드/면허코드들/기초금액/하한율/?/?/공고명/추정금액//개찰일시
-    """
     parts = value.split("/")
     result = {}
     try:
@@ -101,24 +78,31 @@ def parse_con_num(value):
         pass
     return result
 
-
 def clean_text(text):
     return re.sub(r"\s+", " ", text).strip() if text else ""
-
 
 def parse_rows(html):
     soup = BeautifulSoup(html, "html.parser")
 
-    # 로그인 체크
-    if "로그인" in html and "session_igunsul" not in html:
-        print("[경고] 세션 만료. 쿠키를 갱신하세요.")
+    # ★ 디버그
+    with open("debug.html", "w", encoding="utf-8") as f:
+        f.write(html)
+    print("[디버그] debug.html 저장됨")
+    print(f"[디버그] '로그인' 포함: {'로그인' in html}")
+    print(f"[디버그] 'session_igunsul' 포함: {'session_igunsul' in html}")
+    print(f"[디버그] 'con_num' 포함: {'con_num' in html}")
+    print(f"[디버그] PHPSESSID: {PHPSESSID[:10] + '...' if PHPSESSID else '비어있음!'}")
+    print(f"[디버그] SESSION:   {SESSION_IGUNSUL[:10] + '...' if SESSION_IGUNSUL else '비어있음!'}")
+
+    # 로그인 체크 조건 변경 (con_num 기준)
+    if "con_num" not in html:
+        print("[경고] 세션 만료 또는 접근 실패. debug.html 확인하세요.")
         return []
 
     results = []
     rows = soup.select("table tr")
 
     for row in rows:
-        # con_num input 있는 행만
         con_input = row.find("input", {"name": "con_num[]"})
         if not con_input:
             continue
@@ -127,33 +111,26 @@ def parse_rows(html):
             con_value = con_input.get("value", "")
             parsed    = parse_con_num(con_value)
 
-            # 공고번호
             notice_no_label = row.find("label", style=lambda s: s and "5c667b" in s)
             notice_no = clean_text(notice_no_label.text) if notice_no_label else ""
             notice_no = notice_no.strip("[]")
 
-            # 공고명
             name_span = row.find("span", class_="clipboard_copy_type2")
             notice_name = ""
             if name_span:
-                # tooltip div 제거 후 텍스트
                 for div in name_span.find_all("div"):
                     div.decompose()
                 notice_name = clean_text(name_span.get_text())
 
-            # 태그 (기초, A값, 순공사 등)
             tags = [clean_text(t.text) for t in row.find_all("label", class_="ij_tag")]
 
-            # 면허 (ij_tooltip 첫번째=전체, 두번째=주면허)
             tooltips = row.find_all("div", class_="ij_tooltip")
             license_all  = clean_text(tooltips[0].get_text()) if len(tooltips) > 0 else ""
             license_main = clean_text(tooltips[1].get_text()) if len(tooltips) > 1 else ""
 
-            # 발주처
             org_div = row.find("div", class_="left")
             org = clean_text(org_div.get_text()) if org_div else ""
 
-            # 지역
             center_divs = row.find_all("div", class_="center")
             region = clean_text(center_divs[0].get_text()) if center_divs else ""
 
@@ -178,7 +155,6 @@ def parse_rows(html):
 
     return results
 
-
 def print_results(items):
     print()
     print("=" * 80)
@@ -200,7 +176,6 @@ def print_results(items):
     print()
     print("=" * 80)
 
-
 def main():
     print("=" * 80)
     print("  이건설 입찰공고 크롤링 테스트")
@@ -216,7 +191,6 @@ def main():
     result = all_rows[:LIMIT]
     print_results(result)
     print(f"✅ 완료 - {len(result)}건 출력")
-
 
 if __name__ == "__main__":
     main()
