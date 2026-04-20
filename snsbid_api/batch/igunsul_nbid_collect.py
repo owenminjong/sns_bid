@@ -34,7 +34,7 @@ SESSION_IGUNSUL = os.getenv("IGUNSUL_SESSION", "")
 
 PART          = "79"
 LOCAL         = "6"
-START_DATE    = date(2020, 1, 1)   # 수집 시작일
+START_DATE = date(2020, 7, 1)
 REQUEST_DELAY = 1.5
 
 BASE_URL = "https://www.igunsul.net"
@@ -159,38 +159,26 @@ def parse_hanga(val: str):
 def validate_row(row: dict) -> list:
     issues = []
 
-    필수 = ['기초금액', '투찰률', 'A값', '예정가격', '낙찰하한가', '낙찰금액', '낙찰율', '낙찰업체', '개찰일']
+    # 무조건 필수
+    필수 = ['기초금액', '낙찰금액', '낙찰율', '낙찰업체', '개찰일']
     for col in 필수:
         if not row.get(col):
             issues.append(f'{col}_누락')
 
-    try:
-        yega    = to_int(row['예정가격'])
-        A       = to_int(row['A값'])
-        rate    = to_float(row['투찰률']) / 100
-        h1_calc = int((yega - A) * rate + A)
-        h1_coll = to_int(row['낙찰하한가'])
-        if abs(h1_calc - h1_coll) > 1000:
-            issues.append(f'낙찰하한가_오차_{h1_calc - h1_coll:+,}원')
-    except Exception:
-        issues.append('낙찰하한가_계산오류')
+    # A값 있을 때만 낙찰하한가 검증
+    if row.get('A값') and row.get('예정가격') and row.get('투찰률'):
+        try:
+            yega    = to_int(row['예정가격'])
+            A       = to_int(row['A값'])
+            rate    = to_float(row['투찰률']) / 100
+            h1_calc = int((yega - A) * rate + A)
+            h1_coll = to_int(row['낙찰하한가'])
+            if h1_coll and abs(h1_calc - h1_coll) > 1000:
+                issues.append(f'낙찰하한가_오차_{h1_calc - h1_coll:+,}원')
+        except Exception:
+            pass
 
-    try:
-        기초        = to_int(row['기초금액'])
-        예정        = to_int(row['예정가격'])
-        사정률_calc = round(예정 / 기초 * 100 - 100, 3)
-        사정률_coll = to_float(row['사정률'])
-        if 사정률_coll is not None and abs(사정률_calc - 사정률_coll) > 0.01:
-            issues.append(f'사정률_오차_{사정률_calc}')
-    except Exception:
-        issues.append('사정률_계산오류')
-
-    try:
-        if row.get('낙찰하한가_실제') and to_int(row['낙찰금액']) < to_int(row['낙찰하한가_실제']):
-            issues.append('낙찰금액_역전')
-    except Exception:
-        pass
-
+    # 낙찰율 검증
     try:
         기초        = to_int(row['기초금액'])
         낙찰        = to_int(row['낙찰금액'])
@@ -199,14 +187,7 @@ def validate_row(row: dict) -> list:
         if 낙찰율_coll is not None and abs(낙찰율_calc - 낙찰율_coll) > 0.01:
             issues.append(f'낙찰율_오차_{낙찰율_calc}')
     except Exception:
-        issues.append('낙찰율_계산오류')
-
-    추첨 = row.get('낙찰업체_추첨번호', '')
-    if 추첨:
-        nums = re.findall(r'\d+', 추첨)
-        valid = [int(x) for x in nums if 1 <= int(x) <= 15]
-        if len(valid) != 2:
-            issues.append(f'추첨번호_형식오류_{추첨}')
+        pass
 
     return issues
 

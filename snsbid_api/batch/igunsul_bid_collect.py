@@ -269,10 +269,12 @@ def parse_detail(html):
                 result["기초금액"] = to_int(val)
             elif key == "추정가격":
                 result["추정가격"] = to_int(val)
-            elif key == "투찰률":
+            elif "투찰률" in key:
                 m = re.search(r"([\d.]+)", val)
                 if m:
-                    result["투찰률"] = to_float(m.group(1))
+                    rate = to_float(m.group(1))
+                    if rate and 50 <= rate <= 100:  # ★ 범위 체크
+                        result["투찰률"] = rate
             elif "A값" in key:
                 result["A값"] = to_int(val)
             elif "순공사원가" in key:
