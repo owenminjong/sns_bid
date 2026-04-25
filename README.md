@@ -47,23 +47,32 @@
 ## AI 모델 설계
 
 ### 낙찰 메커니즘
+
+```
 기초금액 ±2~3% 범위에서 복수예비가격 15개 생성
 → 업체들이 각 2개 번호 선택
 → 가장 많이 선택된 상위 4개 평균 = 예정가격 (랜덤)
 → 예정가격 이하 & 낙찰하한가 이상 중 최저가 업체 낙찰
 → 예정가격이 랜덤이므로 완벽한 예측 불가
 → 과거 낙찰 패턴으로 확률을 높이는 방식
+```
 
 ### 모델 전략
+
+```
 1단계: XGBoost · LightGBM · RandomForest 5-Fold CV 비교
-→ MAE · RMSE 기준 최적 모델 채택 (XGBoost)
+       → MAE · RMSE 기준 최적 모델 채택 (XGBoost)
+
 2단계: 튜닝
-RandomizedSearchCV → params/xgb_no_a_params.json 저장
-→ save_model.py에서 자동 로드
+       RandomizedSearchCV → params/xgb_no_a_params.json 저장
+       → save_model.py에서 자동 로드
+
 3단계: 전체 데이터 최종 학습 + CV MAE 실측 저장
-→ models/latest.joblib
+       → models/latest.joblib
+```
 
 ### 학습 데이터
+
 | 항목 | 내용 |
 |---|---|
 | 소스 | igunsul_nbid (서울 공공입찰 2020~2025) |
@@ -72,6 +81,7 @@ RandomizedSearchCV → params/xgb_no_a_params.json 저장
 | 타겟 | 낙찰율 (낙찰금액 / 기초금액 × 100) |
 
 ### 피처
+
 | 피처 | 설명 |
 |---|---|
 | 투찰률 | 86.745 / 87.745 / 89.745 (사실상 3개 카테고리) |
@@ -82,6 +92,7 @@ RandomizedSearchCV → params/xgb_no_a_params.json 저장
 | 대업종_enc | LabelEncoder (le_daeupcong.joblib 고정) |
 
 ### 성능
+
 | 지표 | 값 |
 |---|---|
 | CV MAE | 0.5703% |
@@ -91,6 +102,8 @@ RandomizedSearchCV → params/xgb_no_a_params.json 저장
 ---
 
 ## 프로젝트 구조
+
+```
 snsbid/
 ├── main.py
 ├── .env
@@ -114,20 +127,25 @@ snsbid/
 │   ├── igunsul_bid_collect.py
 │   └── igunsul_nbid_collect.py
 └── frontend/
-└── src/
-├── pages/
-└── components/
+    └── src/
+        ├── pages/
+        └── components/
+```
 
 ---
 
 ## 재학습 흐름
-튜닝이 필요할 때 (가끔)
+
+```
+# 튜닝이 필요할 때 (가끔)
 python app/ai/train.py
 → params/xgb_no_a_params.json 자동 저장
 → python app/ai/save_model.py
-재학습만 할 때 (자주)
+
+# 재학습만 할 때 (자주)
 python app/ai/save_model.py
 → params.json 그대로 재사용, latest.joblib 갱신
+```
 
 ---
 
@@ -157,16 +175,21 @@ python app/ai/save_model.py
 ---
 
 ## 환경변수 (.env)
+
+```
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=sns_bid
 DB_USER=root
 DB_PASS=
+
 NARA_API_KEY=
 ANTHROPIC_API_KEY=
+
 SECRET_KEY=
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
+```
 
 ---
 
