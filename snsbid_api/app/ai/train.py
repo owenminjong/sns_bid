@@ -1,147 +1,313 @@
-'''
-    숭늉샘비드
-    예측 데이터 생성 -> 예측 모델 생성 Batch
-'''
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import time
-import pymysql
+"""
+숭늉샘B1D - AI 모델 학습
+타겟=낙찰율, 피처=비율 기반
+XGBoost / LightGBM / RandomForest 5-Fold CV 비교 + XGBoost 튜닝
+튜닝 결과 → params/xgb_no_a_params.json 자동 저장
+"""
+
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler
+import sys
+import json
 import joblib
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from sqlalchemy import text
+from sklearn.base import clone
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
 
-exec(open('../../../python/public_db.py', encoding='utf-8').read())
-# DB 접속
-mydb = pymysql.connect(host=server_ip, port=3306, db=server_db,
-                user=server_user, passwd=server_pass, charset='utf8', autocommit=True)
-db_cursor = db_conn()
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# Batch작업 시작 저장
-ssn = 0
-sql = "CALL svr_batch_Start();"
-rows = sql_result(sql)   
-ssn = rows[0]['ret']
+from app.database import engine
 
-# 10억미만 
-if os.path.exists('../../../python/sns_train_10.csv'):
-    os.remove('../../../python/sns_train_10.csv')
-sql = "call api_bid_train('00000000', '99999999', 1, 1000000000, 0);"
-rows = sql_result(sql)   
-df = pd.DataFrame(rows)
-df.to_csv('sns_train_10.csv', index=False)
-
-# 10억~30억미만 
-if os.path.exists('../../../python/sns_train_30.csv'):
-    os.remove('../../../python/sns_train_30.csv')
-sql = "call api_bid_train('00000000', '99999999', 1000000001, 3000000000, 0);"
-rows = sql_result(sql)   
-df = pd.DataFrame(rows)
-df.to_csv('sns_train_30.csv', index=False)
-
-# 30억~50억미만 
-if os.path.exists('../../../python/sns_train_50.csv'):
-    os.remove('../../../python/sns_train_50.csv')
-sql = "call api_bid_train('00000000', '99999999', 3000000001, 5000000000, 0);"
-rows = sql_result(sql)   
-df = pd.DataFrame(rows)
-df.to_csv('sns_train_50.csv', index=False)
-
-# 50억초과 
-if os.path.exists('../../../python/sns_train_50up.csv'):
-    os.remove('../../../python/sns_train_50up.csv')
-sql = "call api_bid_train('00000000', '99999999', 5000000001, 5000000000000000, 0);"
-rows = sql_result(sql)   
-df = pd.DataFrame(rows)
-df.to_csv('sns_train_50up.csv', index=False)
-
-# 순공사원가 포함
-if os.path.exists('../../../python/sns_train_sun.csv'):
-    os.remove('../../../python/sns_train_sun.csv')
-sql = "call api_bid_train('00000000', '99999999', 1, 5000000000000000, 1);"
-rows = sql_result(sql)   
-df = pd.DataFrame(rows)
-df.to_csv('sns_train_sun.csv', index=False)
+FEATURES  = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc"]
+TARGET    = "낙찰율"
+LE_PATH   = Path(__file__).parent / "params" / "le_daeupcong.joblib"
 
 
-# 10억미만 모델 생성
-data_csv = pd.read_csv('../../../python/sns_train_10.csv', engine='python', encoding='utf-8')
-data_csv['공고번호']=data_csv['공고번호'].apply(lambda x:str(x))
-data_csv=data_csv.set_index('공고번호')
-train_data = data_csv.drop(['예정가격','순위투찰율'],axis=1)
-data_y = train_data['순위금액']
-data_x = train_data.drop('순위금액',axis=1)
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(data_x,data_y,test_size=0.000001,random_state=1004)
-rf = RandomForestRegressor(n_estimators=500,min_samples_leaf=3,min_samples_split=10, n_jobs=-1, random_state=1002, criterion='squared_error')
-rf.fit(x_train,y_train)
-pred_Y=rf.predict(x_test)
-joblib.dump(rf, '../../../python/sns_random_10.joblib')
+# ────────────────────────────────────────────
+# 1. 데이터 로드
+# ────────────────────────────────────────────
+def load_data():
+    query = text("""
+        SELECT
+            기초금액, 투찰률, 대업종, 참여업체수, 개찰일,
+            예가1,  예가2,  예가3,  예가4,  예가5,
+            예가6,  예가7,  예가8,  예가9,  예가10,
+            예가11, 예가12, 예가13, 예가14, 예가15,
+            낙찰금액
+        FROM igunsul_nbid
+        WHERE 기초금액 > 0
+          AND 낙찰금액 > 0
+          AND 낙찰금액 / 기초금액 * 100 BETWEEN 85 AND 91
+          AND 예가1 IS NOT NULL
+          AND 참여업체수 <= 10000
+    """)
 
-# 10~30억미만 모델 생성
-data_csv = pd.read_csv('../../../python/sns_train_30.csv', engine='python', encoding='utf-8')
-data_csv['공고번호']=data_csv['공고번호'].apply(lambda x:str(x))
-data_csv=data_csv.set_index('공고번호')
-train_data = data_csv.drop(['예정가격','순위투찰율'],axis=1)
-data_y = train_data['순위금액']
-data_x = train_data.drop('순위금액',axis=1)
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(data_x,data_y,test_size=0.000001,random_state=1004)
-rf = RandomForestRegressor(n_estimators=500,min_samples_leaf=3,min_samples_split=10, n_jobs=-1, random_state=1002, criterion='squared_error')
-rf.fit(x_train,y_train)
-pred_Y=rf.predict(x_test)
-joblib.dump(rf, '../../../python/sns_random_30.joblib')
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
 
-# 30~50억미만 모델 생성
-data_csv = pd.read_csv('../../../python/sns_train_50.csv', engine='python', encoding='utf-8')
-data_csv['공고번호']=data_csv['공고번호'].apply(lambda x:str(x))
-data_csv=data_csv.set_index('공고번호')
-train_data = data_csv.drop(['예정가격','순위투찰율'],axis=1)
-data_y = train_data['순위금액']
-data_x = train_data.drop('순위금액',axis=1)
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(data_x,data_y,test_size=0.000001,random_state=1004)
-rf = RandomForestRegressor(n_estimators=500,min_samples_leaf=3,min_samples_split=10, n_jobs=-1, random_state=1002, criterion='squared_error')
-rf.fit(x_train,y_train)
-pred_Y=rf.predict(x_test)
-joblib.dump(rf, '../../../python/sns_random_50.joblib')
-
-# 50억이상 모델 생성
-data_csv = pd.read_csv('../../../python/sns_train_50up.csv', engine='python', encoding='utf-8')
-data_csv['공고번호']=data_csv['공고번호'].apply(lambda x:str(x))
-data_csv=data_csv.set_index('공고번호')
-train_data = data_csv.drop(['예정가격','순위투찰율'],axis=1)
-data_y = train_data['순위금액']
-data_x = train_data.drop('순위금액',axis=1)
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(data_x,data_y,test_size=0.000001,random_state=1004)
-rf = RandomForestRegressor(n_estimators=500,min_samples_leaf=3,min_samples_split=10, n_jobs=-1, random_state=1002, criterion='squared_error')
-rf.fit(x_train,y_train)
-pred_Y=rf.predict(x_test)
-joblib.dump(rf, '../../../python/sns_random_50up.joblib')
-
-# 순공사원가 포함 모델 생성
-data_csv = pd.read_csv('../../../python/sns_train_sun.csv', engine='python', encoding='utf-8')
-data_csv['공고번호']=data_csv['공고번호'].apply(lambda x:str(x))
-data_csv=data_csv.set_index('공고번호')
-train_data = data_csv.drop(['예정가격','순위투찰율'],axis=1)
-data_y = train_data['순위금액']
-data_x = train_data.drop('순위금액',axis=1)
-from sklearn.model_selection import train_test_split
-x_train, x_test, y_train, y_test = train_test_split(data_x,data_y,test_size=0.000001,random_state=1004)
-rf = RandomForestRegressor(n_estimators=500,min_samples_leaf=3,min_samples_split=10, n_jobs=-1, random_state=1002, criterion='squared_error')
-rf.fit(x_train,y_train)
-pred_Y=rf.predict(x_test)
-joblib.dump(rf, '../../../python/sns_random_sun.joblib')
-
-#작업 결과 저장 
-current_date = datetime.today().strftime("%Y-%m-%d")
-sql = "CALL svr_batch_Update({}, {}, '{}', '{}');".format( \
-        ssn, 3, current_date , '예측 모델 파일 생성')
-#print(sql)                  
-rows = sql_result(sql)   
+    print(f"[데이터 로드] {len(df):,}건")
+    return df
 
 
+# ────────────────────────────────────────────
+# 2. LabelEncoder 로드 or 최초 생성
+# ────────────────────────────────────────────
+def load_or_fit_le(df):
+    LE_PATH.parent.mkdir(exist_ok=True)
+
+    if LE_PATH.exists():
+        le = joblib.load(LE_PATH)
+        new_categories = set(df["대업종"].unique()) - set(le.classes_)
+        if new_categories:
+            print(f"⚠️  새 업종 감지: {new_categories}")
+            print(f"   → 모델 전체 재학습 필요 시 le.joblib 삭제 후 재실행")
+        else:
+            print(f"✅ LabelEncoder 로드: {LE_PATH}  ({len(le.classes_)}개 업종)")
+    else:
+        print(f"[LabelEncoder] 최초 생성 → {LE_PATH}")
+        le = LabelEncoder()
+        le.fit(df["대업종"])
+        joblib.dump(le, LE_PATH)
+        print(f"✅ 저장 완료: {len(le.classes_)}개 업종")
+
+    return le
+
+
+# ────────────────────────────────────────────
+# 3. 피처 생성
+# ────────────────────────────────────────────
+def add_features(df, le):
+    예가cols = [f"예가{i}" for i in range(1, 16)]
+    df["예가범위"] = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+    df = df.drop(columns=예가cols)
+
+    df["금액대"] = pd.cut(
+        df["기초금액"],
+        bins=[0, 1e9, 3e9, 5e9, float("inf")],
+        labels=[1, 2, 3, 4]
+    )
+    df["금액대"] = pd.to_numeric(df["금액대"], errors="coerce").fillna(1).astype(int)
+
+    df["개찰월"] = pd.to_datetime(df["개찰일"]).dt.month
+
+    df["대업종_enc"] = le.transform(df["대업종"])
+
+    df["낙찰율"] = df["낙찰금액"] / df["기초금액"] * 100
+
+    print(f"[피처 생성] 낙찰율: {df['낙찰율'].min():.3f} ~ {df['낙찰율'].max():.3f} / 평균: {df['낙찰율'].mean():.3f}")
+    print(f"[피처 생성] 예가범위: {df['예가범위'].min():.3f} ~ {df['예가범위'].max():.3f}")
+    print(f"[피처 생성] 금액대:\n{df['금액대'].value_counts().sort_index().to_string()}")
+
+    return df
+
+
+def prepare_xy(df):
+    X = df[FEATURES].fillna(0)
+    y = df[TARGET]
+    return X, y
+
+
+# ────────────────────────────────────────────
+# 4. 모델 정의
+# ────────────────────────────────────────────
+def get_models():
+    from xgboost import XGBRegressor
+    from lightgbm import LGBMRegressor
+
+    return {
+        "xgboost": XGBRegressor(
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=6,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            verbosity=0,
+        ),
+        "lightgbm": LGBMRegressor(
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=6,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            verbose=-1,
+        ),
+        "randomforest": RandomForestRegressor(
+            n_estimators=500,
+            min_samples_leaf=3,
+            min_samples_split=10,
+            random_state=42,
+            n_jobs=-1,
+        ),
+    }
+
+
+# ────────────────────────────────────────────
+# 5. 5-Fold CV 비교
+# ────────────────────────────────────────────
+def run_cv(X, y):
+    from sklearn.model_selection import KFold
+    from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+    kf     = KFold(n_splits=5, shuffle=True, random_state=42)
+    models = get_models()
+
+    print(f"\n{'='*60}")
+    print(f"  5-Fold CV 비교")
+    print(f"  전체: {len(X):,}건")
+    print(f"{'='*60}")
+
+    cv_results = {}
+
+    for name, model in models.items():
+        mae_list  = []
+        rmse_list = []
+
+        print(f"\n  ▶ {name}", end=" ", flush=True)
+
+        for fold, (train_idx, val_idx) in enumerate(kf.split(X), 1):
+            X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+            y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+            fold_model = clone(model)
+            fold_model.fit(X_train, y_train)
+            y_pred = fold_model.predict(X_val)
+
+            mae_list.append(mean_absolute_error(y_val, y_pred))
+            rmse_list.append(np.sqrt(mean_squared_error(y_val, y_pred)))
+            print(f".", end="", flush=True)
+
+        mae_mean  = np.mean(mae_list)
+        rmse_mean = np.mean(rmse_list)
+        mae_원    = mae_mean / 100 * 5e8
+
+        print(f" 완료")
+        print(f"     MAE  평균: {mae_mean:.4f}%  (5억 기준 {mae_원/1e4:.0f}만원)")
+        print(f"     RMSE 평균: {rmse_mean:.4f}%")
+
+        cv_results[name] = {"mae": mae_mean, "rmse": rmse_mean}
+
+    print(f"\n  {'─'*40}")
+    print(f"  MAE 기준 순위")
+    print(f"  {'─'*40}")
+    for rank, (name, res) in enumerate(sorted(cv_results.items(), key=lambda x: x[1]["mae"]), 1):
+        mae_원 = res["mae"] / 100 * 5e8
+        print(f"  {rank}위 {name}: MAE {res['mae']:.4f}% ({mae_원/1e4:.0f}만원) / RMSE {res['rmse']:.4f}%")
+
+    return cv_results
+
+
+# ────────────────────────────────────────────
+# 6. XGBoost 튜닝
+# ────────────────────────────────────────────
+def tune_xgboost(X, y):
+    from sklearn.model_selection import RandomizedSearchCV
+    from xgboost import XGBRegressor
+
+    print(f"\n{'='*60}")
+    print(f"  [2단계] XGBoost 튜닝")
+    print(f"  전체: {len(X):,}건 / n_iter=50 / 5-Fold")
+    print(f"{'='*60}")
+
+    param_dist = {
+        "n_estimators":     [300, 500, 800, 1000],
+        "learning_rate":    [0.01, 0.03, 0.05, 0.1],
+        "max_depth":        [4, 5, 6, 7, 8],
+        "subsample":        [0.7, 0.8, 0.9, 1.0],
+        "colsample_bytree": [0.6, 0.7, 0.8, 0.9, 1.0],
+        "min_child_weight": [1, 3, 5],
+    }
+
+    search = RandomizedSearchCV(
+        estimator=XGBRegressor(random_state=42, n_jobs=-1, verbosity=0),
+        param_distributions=param_dist,
+        n_iter=50,
+        cv=5,
+        scoring="neg_mean_absolute_error",
+        n_jobs=-1,
+        random_state=42,
+        verbose=1,
+    )
+
+    search.fit(X, y)
+
+    best_mae    = -search.best_score_
+    best_params = search.best_params_
+    mae_원      = best_mae / 100 * 5e8
+
+    print(f"\n  ★ 최적 파라미터:")
+    for k, v in best_params.items():
+        print(f"     {k}: {v}")
+    print(f"\n  ★ 최적 MAE: {best_mae:.4f}%  (5억 기준 {mae_원/1e4:.0f}만원)")
+
+    return best_params, best_mae
+
+
+# ────────────────────────────────────────────
+# 7. params.json 저장
+# ────────────────────────────────────────────
+def save_params(best_params):
+    params_dir  = Path(__file__).parent / "params"
+    params_dir.mkdir(exist_ok=True)
+    params_path = params_dir / "xgb_no_a_params.json"
+
+    save = {**best_params, "random_state": 42, "n_jobs": -1, "verbosity": 0}
+
+    with open(params_path, "w") as f:
+        json.dump(save, f, indent=2, ensure_ascii=False)
+
+    print(f"\n✅ params.json 저장 완료: {params_path}")
+    print(json.dumps(save, indent=2))
+
+
+# ────────────────────────────────────────────
+# 8. 메인
+# ────────────────────────────────────────────
+def main():
+    print("\n" + "="*60)
+    print("  숭늉샘B1D AI - 낙찰율 예측 / no_a 단일 모델")
+    print("="*60)
+
+    df  = load_data()
+    le  = load_or_fit_le(df)
+    df  = add_features(df, le)
+    X, y = prepare_xy(df)
+
+    # 1단계: CV 비교
+    cv_results = run_cv(X, y)
+
+    print("\n" + "="*60)
+    print("  1단계 완료")
+    print(f"  베이스라인 (std): 0.8643%  (5억 기준 432만원)")
+    print("="*60)
+
+    # 2단계: XGBoost 튜닝
+    best_params, best_mae = tune_xgboost(X, y)
+
+    baseline    = cv_results["xgboost"]["mae"]
+    improvement = (baseline - best_mae) / baseline * 100
+    print(f"\n  기본값 MAE : {baseline:.4f}%")
+    print(f"  튜닝 후 MAE: {best_mae:.4f}%")
+    print(f"  개선율     : {improvement:.2f}%")
+
+    # 3단계: params.json 저장
+    save_params(best_params)
+
+    print("\n" + "="*60)
+    print("  최종 요약")
+    print("="*60)
+    print(f"  베이스라인 std  : 0.8643%  (5억 기준 432만원)")
+    print(f"  XGBoost 기본값  : {baseline:.4f}%  (5억 기준 {baseline/100*5e8/1e4:.0f}만원)")
+    print(f"  XGBoost 튜닝 후 : {best_mae:.4f}%  (5억 기준 {best_mae/100*5e8/1e4:.0f}만원)")
+    print(f"\n  ▶ 다음: python save_model.py 실행")
+    print()
+
+
+if __name__ == "__main__":
+    main()

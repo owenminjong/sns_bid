@@ -1,5 +1,5 @@
 """
-아이건설넷 낙찰결과 수집기 v3.0 (페이징 + 기간 분할)
+아이건설넷 낙찰결과 수집기 v3.1
 파일경로: snsbid_api/batch/igunsul_nbid_collect.py
 """
 
@@ -17,6 +17,7 @@ from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import SessionLocal
 from app.models.nbid import IgunsulNbid
 from app.models.recheck import IgunsulRecheck
@@ -25,16 +26,11 @@ from app.models.batch import IgunsulBatch
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ============================================================
-# 설정값
-# ============================================================
-
 PHPSESSID       = os.getenv("IGUNSUL_PHPSESSID", "")
 SESSION_IGUNSUL = os.getenv("IGUNSUL_SESSION", "")
 
 PART          = "79"
 LOCAL         = "6"
-START_DATE = date(2020, 7, 1)
 REQUEST_DELAY = 1.5
 
 BASE_URL = "https://www.igunsul.net"
@@ -158,14 +154,11 @@ def parse_hanga(val: str):
 
 def validate_row(row: dict) -> list:
     issues = []
-
-    # 무조건 필수
     필수 = ['기초금액', '낙찰금액', '낙찰율', '낙찰업체', '개찰일']
     for col in 필수:
         if not row.get(col):
             issues.append(f'{col}_누락')
 
-    # A값 있을 때만 낙찰하한가 검증
     if row.get('A값') and row.get('예정가격') and row.get('투찰률'):
         try:
             yega    = to_int(row['예정가격'])
@@ -178,7 +171,6 @@ def validate_row(row: dict) -> list:
         except Exception:
             pass
 
-    # 낙찰율 검증
     try:
         기초        = to_int(row['기초금액'])
         낙찰        = to_int(row['낙찰금액'])
@@ -206,6 +198,26 @@ def get_session():
     session.cookies.set("list_num_session", "500",            domain=".igunsul.net")
     return session
 
+def is_session_valid(session) -> bool:
+    try:
+        resp = session.get(f"{BASE_URL}/nbid/search_list", verify=False, timeout=10)
+        return "로그인" not in resp.text and "login" not in resp.url
+    except:
+        return False
+
+
+# ============================================================
+# DB - 마지막 수집일
+# ============================================================
+
+def get_last_collected_date(db) -> date:
+    from sqlalchemy import func
+    last = db.query(func.max(IgunsulNbid.개찰일)).scalar()
+    if last:
+        if isinstance(last, datetime):
+            return last.date() - timedelta(days=7)
+        return last - timedelta(days=7)
+    return date(2020, 7, 1)
 
 # ============================================================
 # 1단계: 리스트 수집
@@ -244,13 +256,13 @@ def fetch_nbid_list(session, date1, date2, page=1):
         "cost":            "",
         "init_exp_cost1":  "",
         "init_exp_cost2":  "",
-        "nc_sel":          "all",
-        "nc_text":         "",
         "cost1":           "",
         "cost2":           "",
         "g2b_yega_range":  "1",
         "show_yega_range": "",
         "cost_sel":        "init_cost",
+        "nc_sel":          "all",
+        "nc_text":         "",
     }
     resp = session.post(url, data=payload, timeout=30, verify=False)
     resp.raise_for_status()
@@ -535,14 +547,26 @@ def main():
 
     total_added = total_recheck = total_skip = total_error = 0
 
+    # 마지막 수집일부터 시작
+    current = get_last_collected_date(db)
+
     print("=" * 60)
     print(f"  아이건설넷 낙찰결과 수집  |  {today}")
-    print(f"  기간: {START_DATE} ~ {today}  (반년씩 분할)")
+    print(f"  시작일: {current} ~ {today}")
     print("=" * 60)
 
     try:
-        current = START_DATE
         while current < today:
+
+            # 세션 체크
+            if not is_session_valid(session):
+                msg = "세션 만료. .env PHPSESSID/SESSION 갱신 후 재실행 필요"
+                print(f"\n❌ {msg}")
+                batch_end(db, batch, 2,
+                          total_added + total_recheck + total_skip,
+                          total_added, total_recheck, total_skip, total_error, msg)
+                return
+
             next_period = min(current + relativedelta(months=6) - timedelta(days=1), today)
             date1 = current.strftime("%Y-%m-%d")
             date2 = next_period.strftime("%Y-%m-%d")
@@ -562,7 +586,6 @@ def main():
                     print("  → 데이터 없음. 다음 기간으로.")
                     break
 
-                # 세부페이지 수집
                 for i, row in enumerate(all_rows, 1):
                     print(f"    [{i}/{len(all_rows)}] {row['공고명'][:35]}...")
                     try:
@@ -573,7 +596,6 @@ def main():
                         total_error += 1
                     time.sleep(REQUEST_DELAY)
 
-                # DB 저장
                 added, skipped, recheck = save_to_db(db, all_rows, today)
                 total_added   += added
                 total_recheck += recheck
@@ -588,7 +610,8 @@ def main():
 
             current = next_period + timedelta(days=1)
 
-        batch_end(db, batch, 1, total_added + total_recheck + total_skip,
+        batch_end(db, batch, 1,
+                  total_added + total_recheck + total_skip,
                   total_added, total_recheck, total_skip, total_error)
         print(f"\n✅ 전체 완료! 저장: {total_added}건 / 재확인: {total_recheck}건 / 중복: {total_skip}건")
 
@@ -597,7 +620,9 @@ def main():
         print(f"\n❌ 오류: {e}")
         traceback.print_exc()
         db.rollback()
-        batch_end(db, batch, 2, 0, 0, 0, 0, 1, str(e))
+        batch_end(db, batch, 2,
+                  total_added + total_recheck + total_skip,
+                  total_added, total_recheck, total_skip, total_error, str(e))
 
     finally:
         db.close()
