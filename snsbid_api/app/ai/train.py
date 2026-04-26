@@ -3,6 +3,7 @@
 타겟=낙찰율, 피처=비율 기반
 XGBoost / LightGBM / RandomForest 5-Fold CV 비교 + XGBoost 튜닝
 튜닝 결과 → params/xgb_no_a_params.json 자동 저장
+튜닝이 기본값보다 나쁘면 기본값 자동 저장
 """
 
 import os
@@ -21,9 +22,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from app.database import engine
 
-FEATURES  = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc"]
-TARGET    = "낙찰율"
-LE_PATH   = Path(__file__).parent / "params" / "le_daeupcong.joblib"
+FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc"]
+TARGET   = "낙찰율"
+LE_PATH  = Path(__file__).parent / "params" / "le_daeupcong.joblib"
+
+DEFAULT_PARAMS = {
+    "n_estimators":     500,
+    "learning_rate":    0.05,
+    "max_depth":        6,
+    "subsample":        0.8,
+    "colsample_bytree": 0.8,
+    "random_state":     42,
+    "n_jobs":           -1,
+    "verbosity":        0,
+}
 
 
 # ────────────────────────────────────────────
@@ -48,6 +60,8 @@ def load_data():
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
 
+    df["대업종"] = df["대업종"].fillna("기타").replace("", "기타")
+
     print(f"[데이터 로드] {len(df):,}건")
     return df
 
@@ -62,10 +76,11 @@ def load_or_fit_le(df):
         le = joblib.load(LE_PATH)
         new_categories = set(df["대업종"].unique()) - set(le.classes_)
         if new_categories:
-            print(f"⚠️  새 업종 감지: {new_categories}")
-            print(f"   → 모델 전체 재학습 필요 시 le.joblib 삭제 후 재실행")
-        else:
-            print(f"✅ LabelEncoder 로드: {LE_PATH}  ({len(le.classes_)}개 업종)")
+            raise ValueError(
+                f"새 업종 감지: {new_categories}\n"
+                f"→ le_daeupcong.joblib 삭제 후 train.py 재실행하세요."
+            )
+        print(f"✅ LabelEncoder 로드: {LE_PATH}  ({len(le.classes_)}개 업종)")
     else:
         print(f"[LabelEncoder] 최초 생성 → {LE_PATH}")
         le = LabelEncoder()
@@ -92,9 +107,7 @@ def add_features(df, le):
     df["금액대"] = pd.to_numeric(df["금액대"], errors="coerce").fillna(1).astype(int)
 
     df["개찰월"] = pd.to_datetime(df["개찰일"]).dt.month
-
     df["대업종_enc"] = le.transform(df["대업종"])
-
     df["낙찰율"] = df["낙찰금액"] / df["기초금액"] * 100
 
     print(f"[피처 생성] 낙찰율: {df['낙찰율'].min():.3f} ~ {df['낙찰율'].max():.3f} / 평균: {df['낙찰율'].mean():.3f}")
@@ -125,7 +138,7 @@ def get_models():
             subsample=0.8,
             colsample_bytree=0.8,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
             verbosity=0,
         ),
         "lightgbm": LGBMRegressor(
@@ -135,7 +148,7 @@ def get_models():
             subsample=0.8,
             colsample_bytree=0.8,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
             verbose=-1,
         ),
         "randomforest": RandomForestRegressor(
@@ -143,7 +156,7 @@ def get_models():
             min_samples_leaf=3,
             min_samples_split=10,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
         ),
     }
 
@@ -225,7 +238,7 @@ def tune_xgboost(X, y):
     }
 
     search = RandomizedSearchCV(
-        estimator=XGBRegressor(random_state=42, n_jobs=-1, verbosity=0),
+        estimator=XGBRegressor(random_state=42, n_jobs=1, verbosity=0),
         param_distributions=param_dist,
         n_iter=50,
         cv=5,
@@ -252,17 +265,23 @@ def tune_xgboost(X, y):
 # ────────────────────────────────────────────
 # 7. params.json 저장
 # ────────────────────────────────────────────
-def save_params(best_params):
+def save_params(best_params, best_mae, baseline):
     params_dir  = Path(__file__).parent / "params"
     params_dir.mkdir(exist_ok=True)
     params_path = params_dir / "xgb_no_a_params.json"
 
-    save = {**best_params, "random_state": 42, "n_jobs": -1, "verbosity": 0}
+    if best_mae > baseline:
+        print(f"\n⚠️  튜닝 MAE({best_mae:.4f}%)가 기본값({baseline:.4f}%)보다 나쁨")
+        print(f"   → 기본값으로 저장합니다.")
+        save = DEFAULT_PARAMS
+    else:
+        print(f"\n✅ 튜닝 결과가 더 좋음 → 튜닝 파라미터 저장")
+        save = {**best_params, "random_state": 42, "n_jobs": -1, "verbosity": 0}
 
     with open(params_path, "w") as f:
         json.dump(save, f, indent=2, ensure_ascii=False)
 
-    print(f"\n✅ params.json 저장 완료: {params_path}")
+    print(f"✅ params.json 저장 완료: {params_path}")
     print(json.dumps(save, indent=2))
 
 
@@ -274,10 +293,10 @@ def main():
     print("  숭늉샘B1D AI - 낙찰율 예측 / no_a 단일 모델")
     print("="*60)
 
-    df  = load_data()
-    le  = load_or_fit_le(df)
-    df  = add_features(df, le)
-    X, y = prepare_xy(df)
+    df     = load_data()
+    le     = load_or_fit_le(df)
+    df     = add_features(df, le)
+    X, y   = prepare_xy(df)
 
     # 1단계: CV 비교
     cv_results = run_cv(X, y)
@@ -296,8 +315,8 @@ def main():
     print(f"  튜닝 후 MAE: {best_mae:.4f}%")
     print(f"  개선율     : {improvement:.2f}%")
 
-    # 3단계: params.json 저장
-    save_params(best_params)
+    # 3단계: params.json 저장 (튜닝이 나쁘면 기본값 자동 저장)
+    save_params(best_params, best_mae, baseline)
 
     print("\n" + "="*60)
     print("  최종 요약")

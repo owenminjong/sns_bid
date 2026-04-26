@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
+import PredictModal from '../components/PredictModal'
 
 export default function TenderNotice() {
     const navigate = useNavigate()
@@ -11,6 +12,7 @@ export default function TenderNotice() {
     const [loading, setLoading] = useState(false)
     const [searchName, setSearchName] = useState('')
     const [searchNo, setSearchNo] = useState('')
+    const [selectedBid, setSelectedBid] = useState(null)   // PredictModal 연결
 
     const fetchBids = async (p = 1) => {
         setLoading(true)
@@ -43,7 +45,7 @@ export default function TenderNotice() {
 
     const formatAmt = (v) => v ? (v / 100000000).toFixed(1) + '억' : '-'
     const formatDate = (v) => v ? v.replace('T', ' ').slice(0, 16) : '-'
-    const formatRate = (v) => (v && v <= 100) ? v + '%' : '-'
+    const formatRate = (v) => (v != null && v > 0) ? v + '%' : '-'   // 100% 초과 정상 데이터 허용
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
@@ -131,7 +133,10 @@ export default function TenderNotice() {
                             <td className="px-3 py-3 text-center text-gray-600 whitespace-nowrap">{formatRate(bid.투찰률)}</td>
                             <td className="px-3 py-3 text-center text-gray-600 whitespace-nowrap">{formatDate(bid.개찰일)}</td>
                             <td className="px-3 py-3 text-center">
-                                <button className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition">
+                                <button
+                                    onClick={() => setSelectedBid(bid)}
+                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition"
+                                >
                                     예측
                                 </button>
                             </td>
@@ -159,6 +164,14 @@ export default function TenderNotice() {
                     다음
                 </button>
             </div>
+
+            {/* PredictModal */}
+            {selectedBid && (
+                <PredictModal
+                    bid={selectedBid}
+                    onClose={() => setSelectedBid(null)}
+                />
+            )}
         </div>
     )
 }

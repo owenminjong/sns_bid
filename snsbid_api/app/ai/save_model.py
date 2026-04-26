@@ -9,12 +9,12 @@ import os
 import sys
 import json
 import joblib
+import shutil
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import text
-from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 
@@ -77,6 +77,9 @@ def load_data():
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
 
+    # 대업종 NULL/빈값 처리
+    df["대업종"] = df["대업종"].fillna("기타").replace("", "기타")
+
     print(f"[데이터 로드] {len(df):,}건")
     return df
 
@@ -95,8 +98,10 @@ def load_le(df):
 
     new_categories = set(df["대업종"].unique()) - set(le.classes_)
     if new_categories:
-        print(f"⚠️  새 업종 감지: {new_categories}")
-        print(f"   → 모델 전체 재학습 필요 시 le.joblib 삭제 후 train.py 재실행")
+        raise ValueError(
+            f"새 업종 감지: {new_categories}\n"
+            f"→ le_daeupcong.joblib 삭제 후 train.py 재실행하세요."
+        )
 
     print(f"✅ LabelEncoder 로드: {len(le.classes_)}개 업종")
     return le
@@ -118,9 +123,7 @@ def add_features(df, le):
     df["금액대"] = pd.to_numeric(df["금액대"], errors="coerce").fillna(1).astype(int)
 
     df["개찰월"] = pd.to_datetime(df["개찰일"]).dt.month
-
     df["대업종_enc"] = le.transform(df["대업종"])
-
     df["낙찰율"] = df["낙찰금액"] / df["기초금액"] * 100
 
     return df
@@ -137,8 +140,14 @@ def train_and_save(df, le):
     print(f"  데이터: {len(X):,}건 / 피처: {FEATURES}")
     print(f"  파라미터: {PARAMS}")
 
+    # CV 시 내부 모델 n_jobs=1 고정 (cross_val_score와 중첩 방지)
+    from copy import deepcopy
+    cv_params = deepcopy(PARAMS)
+    cv_params["n_jobs"] = 1
+
     cv_scores = cross_val_score(
-        XGBRegressor(**PARAMS), X, y,
+        XGBRegressor(**cv_params),
+        X, y,
         cv=5,
         scoring="neg_mean_absolute_error",
         n_jobs=-1,
@@ -148,7 +157,7 @@ def train_and_save(df, le):
 
     print(f"\n  CV MAE: {cv_mae_pct:.4f}%  (5억 기준 {cv_mae_5억}만원)")
 
-    # 전체 데이터로 최종 학습
+    # 전체 학습은 PARAMS 그대로 (단일 학습이므로 n_jobs=-1 유지)
     print(f"\n[XGBoost] 전체 데이터 최종 학습 중...")
     model = XGBRegressor(**PARAMS)
     model.fit(X, y)
@@ -177,14 +186,12 @@ def train_and_save(df, le):
         "params":        PARAMS,
     }, filepath)
 
-    # latest.joblib 갱신
+    # latest.joblib 갱신 (shutil.copy2 — Windows 호환)
     latest_path = MODEL_DIR / "latest.joblib"
-    if latest_path.exists() or latest_path.is_symlink():
-        latest_path.unlink()
-    latest_path.symlink_to(filename)
+    shutil.copy2(filepath, latest_path)
 
     print(f"\n  💾 저장 완료: {filepath}")
-    print(f"  🔗 latest.joblib → {filename}")
+    print(f"  📋 latest.joblib 갱신 완료")
     print(f"  CV MAE: {cv_mae_pct:.4f}% / 5억 기준 {cv_mae_5억}만원")
     return filepath
 
@@ -206,7 +213,6 @@ def main():
     print("  ✅ 완료")
     print("="*60)
     print(f"  저장 경로: {path}")
-    print(f"\n  ▶ 다음: predict.py 개발")
     print()
 
 
