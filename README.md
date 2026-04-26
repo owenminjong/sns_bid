@@ -95,8 +95,8 @@
 
 | 지표 | 값 |
 |---|---|
-| CV MAE | 0.5703% |
-| 5억 기준 오차 | ±285만원 |
+| CV MAE | 0.6415% |
+| 5억 기준 오차 | ±321만원 |
 | 베이스라인(std) | 0.8643% |
 
 ---
@@ -112,7 +112,15 @@ snsbid/
 │   ├── database.py
 │   ├── models/              # SQLAlchemy 모델
 │   ├── routers/             # FastAPI 라우터
+│   │   ├── auth.py
+│   │   ├── bid.py
+│   │   ├── predict.py       # GET /daeupcong, POST /, POST /save, GET /list
+│   │   ├── staff.py
+│   │   └── batch.py
 │   ├── services/            # 비즈니스 로직
+│   │   ├── auth_service.py
+│   │   ├── bid_service.py
+│   │   └── predict_service.py
 │   └── ai/
 │       ├── train.py         # CV 비교 + 튜닝 (실험용)
 │       ├── save_model.py    # 최종 학습 + 저장 (운영용)
@@ -129,7 +137,34 @@ snsbid/
 └── frontend/
     └── src/
         ├── pages/
-        └── components/
+        │   ├── Login.jsx
+        │   ├── TenderNotice.jsx      # 입찰공고 목록 + 예측 팝업
+        │   └── PredictionList.jsx   # 예측 결과 이력
+        ├── components/
+        │   └── PredictModal.jsx     # 예측 팝업 (투찰률 선택 → 예측 → 저장)
+        └── api/
+            └── index.js             # axios 인스턴스 (JWT 자동 주입)
+```
+
+---
+
+## 예측 API 흐름
+
+```
+POST /api/predict
+  입력: 투찰률, 기초금액, 참여업체수, 대업종, 예가범위, 개찰일자
+  출력: 예측낙찰율(%), 예측낙찰금액(원), ±MAE 범위, warning
+
+POST /api/predict/save
+  입력: 공고정보 + 예측결과 (JWT에서 sfcode 자동 추출)
+  저장: bid_predict 테이블 INSERT
+
+GET /api/predict/list
+  필터: 날짜, 공고번호, 공고명, 페이지
+  출력: 예측 이력 목록
+
+GET /api/predict/daeupcong
+  출력: LabelEncoder 업종 목록 227개 (인증 불필요)
 ```
 
 ---
@@ -167,9 +202,10 @@ python app/ai/save_model.py
 - [x] 5-Fold CV 다중 모델 비교 학습
 - [x] XGBoost 튜닝 + params.json 자동 저장
 - [x] LabelEncoder 고정 관리 (le_daeupcong.joblib)
-- [ ] predict.py
-- [ ] routers/predict.py · services/predict_service.py
-- [ ] React 프론트엔드
+- [x] predict.py — 모델 로드/예측/업종 폴백(warning)
+- [x] routers/predict.py · services/predict_service.py
+- [x] React 프론트엔드 (TenderNotice, PredictModal, PredictionList)
+- [ ] E2E 통합 테스트
 - [ ] 클라우드 배포
 
 ---
