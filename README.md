@@ -55,14 +55,14 @@
 ### 모델 전략
 
 ```
-1단계: XGBoost · LightGBM · RandomForest 5-Fold CV 비교
+1단계: XGBoost · LightGBM · RandomForest TimeSeriesSplit 5-Fold CV 비교
        → MAE · RMSE 기준 최적 모델 채택 (XGBoost)
 
 2단계: 튜닝
-       RandomizedSearchCV → params/xgb_no_a_params.json 저장
+       RandomizedSearchCV (TimeSeriesSplit) → params/xgb_no_a_params.json 저장
        → save_model.py에서 자동 로드
 
-3단계: 전체 데이터 최종 학습 + CV MAE 실측 저장
+3단계: 전체 데이터 최종 학습 + CV MAE / CV STD 실측 저장
        → models/latest.joblib
 ```
 
@@ -71,7 +71,7 @@
 | 항목 | 내용 |
 |---|---|
 | 소스 | igunsul_nbid (서울 공공입찰 2020~2025) |
-| 건수 | 35,712건 |
+| 건수 | 35,711건 |
 | 필터 | 낙찰율 85~91%, 예가1 IS NOT NULL, 참여업체수 ≤ 10,000 |
 | 타겟 | 낙찰율 (낙찰금액 / 기초금액 × 100) |
 
@@ -80,18 +80,21 @@
 | 피처 | 설명 |
 |---|---|
 | 투찰률 | 86.745 / 87.745 / 89.745 (사실상 3개 카테고리) |
-| 예가범위 | (예가 MAX - MIN) / 기초금액 × 100 |
+| 예가범위 | 실제 예가 분산 기준 분류 — 지방계약법=3, 국가계약법=2 |
 | 금액대 | 1(~10억) / 2(~30억) / 3(~50억) / 4(50억+) |
 | 참여업체수 | 실수값 |
 | 개찰월 | 1~12 |
 | 대업종_enc | LabelEncoder (le_daeupcong.joblib 고정) |
+| log_기초금액 | np.log1p(기초금액) — 금액 연속형 피처 |
 
 ### 성능
 
 | 지표 | 값 |
 |---|---|
-| CV MAE | 0.6415% |
-| 5억 기준 오차 | ±321만원 |
+| CV MAE | 0.6200% |
+| CV STD | 0.7851% |
+| 5억 기준 오차 | ±309만원 |
+| 예측 구간 (90%) | ±1.645 × STD = ±1.291% |
 | 베이스라인(std) | 0.8643% |
 
 ---
@@ -148,7 +151,7 @@ snsbid/
 ```
 POST /api/predict
   입력: 투찰률, 기초금액, 참여업체수, 대업종, 예가범위, 개찰일자
-  출력: 예측낙찰율(%), 예측낙찰금액(원), ±MAE 범위, warning
+  출력: 예측낙찰율(%), 예측낙찰금액(원), 90% 신뢰구간 범위, warning
 
 POST /api/predict/save
   입력: 공고정보 + 예측결과 (JWT에서 sfcode 자동 추출)
@@ -168,6 +171,9 @@ GET /api/predict/daeupcong
 
 ```
 # 튜닝이 필요할 때 (가끔)
+cd C:/xampp/htdocs/snsbid
+source venv/Scripts/activate
+cd snsbid_api
 python app/ai/train.py
 → params/xgb_no_a_params.json 자동 저장
 → python app/ai/save_model.py
@@ -194,13 +200,17 @@ python app/ai/save_model.py
 - [x] FastAPI 프로젝트 구조 + DB 연결
 - [x] 라우터 · 서비스 레이어 구성 (auth, bid, batch, staff)
 - [x] 나라장터 API 배치 수집 파이프라인
-- [x] 5-Fold CV 다중 모델 비교 학습
+- [x] TimeSeriesSplit 5-Fold CV 다중 모델 비교 학습
 - [x] XGBoost 튜닝 + params.json 자동 저장
 - [x] LabelEncoder 고정 관리 (le_daeupcong.joblib)
+- [x] 예가범위 학습/예측 불일치 수정 (실제 분산 → 2/3 정수 분류)
+- [x] log_기초금액 피처 추가
+- [x] cv_std_pct 번들 저장 + 90% 예측 구간 API 반영
 - [x] predict.py — 모델 로드/예측/업종 폴백(warning)
 - [x] routers/predict.py · services/predict_service.py
 - [x] React 프론트엔드 (TenderNotice, PredictModal, PredictionList)
-- [ ] E2E 통합 테스트
+- [x] E2E 통합 테스트
+- [ ] 배치 스케줄러 정상화 확인
 - [ ] 클라우드 배포
 
 ---
