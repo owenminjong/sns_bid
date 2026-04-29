@@ -1,5 +1,5 @@
 // src/pages/Login.jsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
@@ -8,6 +8,12 @@ export default function Login() {
     const [form, setForm] = useState({ username: '', password: '' })
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
+
+    // ← 추가: 이미 로그인된 경우 /tender로 이동
+    useEffect(() => {
+        const token = localStorage.getItem('token')
+        if (token) navigate('/tender', { replace: true })
+    }, [navigate])
 
     const handleSubmit = async (e) => {
         e.preventDefault()

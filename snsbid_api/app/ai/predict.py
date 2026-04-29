@@ -3,28 +3,29 @@ app/ai/predict.py
 XGBoost 낙찰율 예측 모듈
 
 모델 입력 피처:
-    투찰률    - 사용자 입력 (%)
-    예가범위  - 지방계약법=3, 국가계약법=2
-    금액대    - 1:10억이하 / 2:10~30억 / 3:30~50억 / 4:50억초과  (파생)
-    참여업체수 - 개찰 참여 업체 수
-    개찰월    - 개찰일자에서 추출 (파생)
-    대업종_enc - LabelEncoder 변환된 정수
+    투찰률      - 사용자 입력 (%)
+    예가범위    - 지방계약법=3, 국가계약법=2
+    금액대      - 1:10억이하 / 2:10~30억 / 3:30~50억 / 4:50억초과  (파생)
+    참여업체수  - 개찰 참여 업체 수
+    개찰월      - 개찰일자에서 추출 (파생)
+    대업종_enc  - LabelEncoder 변환된 정수
+    log_기초금액 - np.log1p(기초금액) (파생)
 
 예측 타겟: 낙찰율 (%)  →  낙찰금액 = 기초금액 × 낙찰율 / 100
 """
 
 import joblib
+import numpy as np
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR   = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "latest.joblib"
 
 # ── 금액대 구간 정의 (train.py pd.cut bins/labels와 반드시 동일) ───────────────
-# pd.cut(right=True) 기본값 → (0, 10억] (10억, 30억] (30억, 50억] (50억, ∞)
 AMT_BINS   = [0, 1_000_000_000, 3_000_000_000, 5_000_000_000, float("inf")]
 AMT_LABELS = [1, 2, 3, 4]
 
@@ -35,7 +36,7 @@ _bundle: Optional[dict] = None
 def load_model() -> dict:
     """
     모델 번들을 로드하고 캐싱한다.
-    반환 dict 키: model, features, label_encoder, cv_mae_pct, params 등
+    반환 dict 키: model, features, label_encoder, cv_mae_pct, cv_std_pct, params 등
     """
     global _bundle
     if _bundle is None:
@@ -46,10 +47,6 @@ def load_model() -> dict:
 
 
 def _resolve_금액대(bssamt: int) -> int:
-    """
-    기초금액(bssamt)으로 금액대 구간 정수를 반환한다.
-    pd.cut(right=True) 기본값과 일치하도록 <= 조건 사용.
-    """
     for i, boundary in enumerate(AMT_BINS[1:]):
         if bssamt <= boundary:
             return AMT_LABELS[i]
@@ -57,29 +54,16 @@ def _resolve_금액대(bssamt: int) -> int:
 
 
 def _encode_대업종(label_encoder, 대업종: str) -> tuple[int, bool]:
-    """
-    LabelEncoder로 대업종명을 정수로 변환한다.
-    미지 클래스(학습 시 없던 업종) → ValueError → '기타' 폴백
-
-    Returns:
-        (enc_value, fallback_used)
-        fallback_used=True 이면 호출자가 warning을 생성해야 함
-    """
     try:
         return int(label_encoder.transform([대업종])[0]), False
     except ValueError:
         try:
             return int(label_encoder.transform(["기타"])[0]), True
         except ValueError:
-            # '기타'도 없는 극단적 상황 — 방어 코드
             return 0, True
 
 
 def get_대업종_classes() -> list[str]:
-    """
-    LabelEncoder에 등록된 전체 업종 목록을 반환한다.
-    GET /api/predict/daeupcong 엔드포인트에서 호출.
-    """
     bundle = load_model()
     return list(bundle["label_encoder"].classes_)
 
@@ -90,7 +74,7 @@ def predict(
         참여업체수: int,
         대업종: str,
         예가범위: int,
-        개찰일자: str,           # "YYYY-MM-DD" 또는 "YYYYMMDD"
+        개찰일자: str,
 ) -> dict:
     """
     낙찰율 및 낙찰예상금액을 예측한다.
@@ -107,12 +91,12 @@ def predict(
         {
             "predict_rate": float,   # 예측 낙찰율 (%)
             "predict_amt": int,      # 예측 낙찰금액 (원)
-            "warning": str | None,   # 업종 폴백 시 경고 메시지, 정상이면 None
-            "model_mae_pct": float,  # 모델 CV MAE (%)
-            "model_mae_amt": int,    # 모델 CV MAE 금액 환산 (원)
-            "range": {               # 예측 ± MAE 범위
-                "min": int,
-                "max": int,
+            "warning": str | None,
+            "model_mae_pct": float,
+            "model_mae_amt": int,
+            "range": {
+                "min": int,          # 90% 신뢰구간 하한
+                "max": int,          # 90% 신뢰구간 상한
             },
             "meta": {
                 "금액대": int,
@@ -146,50 +130,52 @@ def predict(
     개찰월 = dt.month
 
     # ── 파생 변수 계산 ────────────────────────────────────────────────────────
-    bundle = load_model()
-    금액대 = _resolve_금액대(bssamt)
+    bundle     = load_model()
+    금액대     = _resolve_금액대(bssamt)
     대업종_enc, fallback_used = _encode_대업종(bundle["label_encoder"], 대업종)
-    warning = (
+    warning    = (
         f"등록되지 않은 업종('{대업종}')이 입력되어 '기타'로 처리되었습니다."
         if fallback_used else None
     )
 
-    # ── 입력 DataFrame 구성 (학습 피처 순서 고정) ─────────────────────────────
-    features = bundle["features"]   # ['투찰률', '예가범위', '금액대', '참여업체수', '개찰월', '대업종_enc']
+    # ── 입력 DataFrame 구성 ───────────────────────────────────────────────────
+    features = bundle["features"]  # ['투찰률', '예가범위', '금액대', '참여업체수', '개찰월', '대업종_enc', 'log_기초금액']
     row = {
-        "투찰률": 투찰률,
-        "예가범위": 예가범위,
-        "금액대": 금액대,
-        "참여업체수": 참여업체수,
-        "개찰월": 개찰월,
-        "대업종_enc": 대업종_enc,
+        "투찰률":      투찰률,
+        "예가범위":    예가범위,
+        "금액대":      금액대,
+        "참여업체수":  참여업체수,
+        "개찰월":      개찰월,
+        "대업종_enc":  대업종_enc,
+        "log_기초금액": float(np.log1p(bssamt)),
     }
     X = pd.DataFrame([row], columns=features)
 
     # ── 예측 ─────────────────────────────────────────────────────────────────
-    model = bundle["model"]
+    model        = bundle["model"]
     predict_rate = float(model.predict(X)[0])
 
     # ── 결과 계산 ─────────────────────────────────────────────────────────────
     predict_amt = int(bssamt * predict_rate / 100)
-    mae_pct = bundle["cv_mae_pct"]
-    mae_amt = int(bssamt * mae_pct / 100)
+    mae_pct     = bundle["cv_mae_pct"]
+    mae_amt     = int(bssamt * mae_pct / 100)
+    std_pct     = bundle.get("cv_std_pct", mae_pct)  # 구버전 모델 호환
 
     return {
         "predict_rate": round(predict_rate, 3),
-        "predict_amt": predict_amt,
-        "warning": warning,
+        "predict_amt":  predict_amt,
+        "warning":      warning,
         "model_mae_pct": round(mae_pct, 4),
         "model_mae_amt": mae_amt,
         "range": {
-            "min": int(bssamt * (predict_rate - mae_pct) / 100),
-            "max": int(bssamt * (predict_rate + mae_pct) / 100),
+            "min": int(bssamt * (predict_rate - 1.645 * std_pct) / 100),
+            "max": int(bssamt * (predict_rate + 1.645 * std_pct) / 100),
         },
         "meta": {
-            "금액대": 금액대,
-            "개찰월": 개찰월,
-            "대업종_enc": 대업종_enc,
+            "금액대":           금액대,
+            "개찰월":           개찰월,
+            "대업종_enc":       대업종_enc,
             "model_trained_at": bundle.get("trained_at", ""),
-            "train_samples": bundle.get("train_samples", 0),
+            "train_samples":    bundle.get("train_samples", 0),
         },
     }

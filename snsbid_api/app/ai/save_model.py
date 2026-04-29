@@ -15,7 +15,6 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import text
-from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -28,7 +27,7 @@ LE_PATH    = PARAMS_DIR / "le_daeupcong.joblib"
 MODEL_DIR.mkdir(exist_ok=True)
 PARAMS_DIR.mkdir(exist_ok=True)
 
-FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc"]
+FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc", "log_기초금액"]
 TARGET   = "낙찰율"
 
 # ────────────────────────────────────────────
@@ -112,7 +111,9 @@ def load_le(df):
 # ────────────────────────────────────────────
 def add_features(df, le):
     예가cols = [f"예가{i}" for i in range(1, 16)]
-    df["예가범위"] = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+
+    예가범위_raw = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+    df["예가범위"] = 예가범위_raw.apply(lambda x: 3 if x > 2.5 else 2)
     df = df.drop(columns=예가cols)
 
     df["금액대"] = pd.cut(
@@ -125,6 +126,7 @@ def add_features(df, le):
     df["개찰월"] = pd.to_datetime(df["개찰일"]).dt.month
     df["대업종_enc"] = le.transform(df["대업종"])
     df["낙찰율"] = df["낙찰금액"] / df["기초금액"] * 100
+    df["log_기초금액"] = np.log1p(df["기초금액"])
 
     return df
 
@@ -133,31 +135,41 @@ def add_features(df, le):
 # 4. CV 평가 → 전체 학습 → 저장
 # ────────────────────────────────────────────
 def train_and_save(df, le):
+    from sklearn.model_selection import TimeSeriesSplit
+    from copy import deepcopy
+
+    df = df.sort_values("개찰일").reset_index(drop=True)
+
     X = df[FEATURES].fillna(0)
     y = df[TARGET]
 
-    print(f"\n[XGBoost] CV 평가 시작 (5-Fold)")
+    print(f"\n[XGBoost] CV 평가 시작 (TimeSeriesSplit 5-Fold)")
     print(f"  데이터: {len(X):,}건 / 피처: {FEATURES}")
     print(f"  파라미터: {PARAMS}")
 
-    # CV 시 내부 모델 n_jobs=1 고정 (cross_val_score와 중첩 방지)
-    from copy import deepcopy
     cv_params = deepcopy(PARAMS)
     cv_params["n_jobs"] = 1
 
-    cv_scores = cross_val_score(
-        XGBRegressor(**cv_params),
-        X, y,
-        cv=5,
-        scoring="neg_mean_absolute_error",
-        n_jobs=-1,
-    )
-    cv_mae_pct = float(-cv_scores.mean())
+    tscv = TimeSeriesSplit(n_splits=5)
+
+    mae_list      = []
+    all_residuals = []
+
+    for train_idx, val_idx in tscv.split(X):
+        m = XGBRegressor(**cv_params)
+        m.fit(X.iloc[train_idx], y.iloc[train_idx])
+        pred      = m.predict(X.iloc[val_idx])
+        residuals = y.iloc[val_idx].values - pred
+        mae_list.append(np.mean(np.abs(residuals)))
+        all_residuals.extend(residuals.tolist())
+
+    cv_mae_pct = float(np.mean(mae_list))
+    cv_std_pct = float(np.std(all_residuals))
     cv_mae_5억 = int(cv_mae_pct / 100 * 5e8 / 1e4)
 
     print(f"\n  CV MAE: {cv_mae_pct:.4f}%  (5억 기준 {cv_mae_5억}만원)")
+    print(f"  CV STD: {cv_std_pct:.4f}%")
 
-    # 전체 학습은 PARAMS 그대로 (단일 학습이므로 n_jobs=-1 유지)
     print(f"\n[XGBoost] 전체 데이터 최종 학습 중...")
     model = XGBRegressor(**PARAMS)
     model.fit(X, y)
@@ -167,7 +179,6 @@ def train_and_save(df, le):
     for feat, imp in importances.sort_values(ascending=False).items():
         print(f"    {feat}: {imp:.4f}")
 
-    # 저장
     today    = datetime.now().strftime("%Y%m%d")
     filename = f"xgboost_no_a_{today}.joblib"
     filepath = MODEL_DIR / filename
@@ -182,17 +193,17 @@ def train_and_save(df, le):
         "train_samples": len(X),
         "label_encoder": le,
         "cv_mae_pct":    cv_mae_pct,
+        "cv_std_pct":    cv_std_pct,
         "cv_mae_5억":    cv_mae_5억,
         "params":        PARAMS,
     }, filepath)
 
-    # latest.joblib 갱신 (shutil.copy2 — Windows 호환)
     latest_path = MODEL_DIR / "latest.joblib"
     shutil.copy2(filepath, latest_path)
 
     print(f"\n  💾 저장 완료: {filepath}")
     print(f"  📋 latest.joblib 갱신 완료")
-    print(f"  CV MAE: {cv_mae_pct:.4f}% / 5억 기준 {cv_mae_5억}만원")
+    print(f"  CV MAE: {cv_mae_pct:.4f}% / CV STD: {cv_std_pct:.4f}% / 5억 기준 {cv_mae_5억}만원")
     return filepath
 
 

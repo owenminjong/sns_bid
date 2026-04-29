@@ -33,16 +33,19 @@ def run_predict(
         bssamt: int,
         참여업체수: int,
         대업종: str,
-        예가범위: int,
+        예가범위: str,
         개찰일자: str,
 ) -> dict:
+    # 예가범위 문자열 → int 파싱: "+3% ~ -3%" → 3, "+2% ~ -2%" → 2
+    예가범위_int = 3 if "3%" in str(예가범위) else 2
+
     try:
         result = predict(
             투찰률=투찰률,
             bssamt=bssamt,
             참여업체수=참여업체수,
             대업종=대업종,
-            예가범위=예가범위,
+            예가범위=예가범위_int,
             개찰일자=개찰일자,
         )
         return {"status": "success", "data": result}

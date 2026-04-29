@@ -1,47 +1,40 @@
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
-from app.models.staff import Staff
-from dotenv import load_dotenv
 import os
+import bcrypt
+from datetime import datetime, timedelta
+from jose import jwt
+from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM  = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
+ALGORITHM  = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
-def create_token(data: dict) -> str:
+
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def create_access_token(data: dict) -> str:
+    payload = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    data.update({"exp": expire})
-    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+    payload.update({"exp": expire})
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-def verify_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        return None
 
-def login_user(db: Session, sfid: str, sfpw: str):
-    staff = db.query(Staff).filter(
-        Staff.sfid == sfid,
-        Staff.isuse == 1,
-        Staff.isdel == 0
-    ).first()
-
+def login_user(db: Session, sfid: str, sfpw: str) -> str | None:
+    from app.models.staff import Staff
+    staff = db.query(Staff).filter(Staff.sfid == sfid).first()
     if not staff:
         return None
     if not verify_password(sfpw, staff.sfpw):
         return None
-
-    token = create_token({
+    token = create_access_token({
         "sfcode": staff.sfcode,
         "sfid":   staff.sfid,
         "sfname": staff.sfname,

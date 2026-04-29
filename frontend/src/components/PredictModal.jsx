@@ -2,28 +2,19 @@
 import { useState, useEffect } from "react";
 import api from "../api";
 
-// 투찰률 고정 선택지 (학습 데이터 기반 3개 카테고리)
 const URATE_OPTIONS = [86.745, 87.745, 89.745];
 
 export default function PredictModal({ bid, onClose }) {
-    // ── 사용자 입력 ────────────────────────────────────────────────────────────
     const [urate, setUrate] = useState(87.745);
     const [참여업체수, set참여업체수] = useState("");
-
-    // ── 업종 목록 ──────────────────────────────────────────────────────────────
     const [daeupcongList, setDaeupcongList] = useState([]);
     const [대업종, set대업종] = useState("");
-
-    // ── 예측 결과 ──────────────────────────────────────────────────────────────
     const [result, setResult] = useState(null);
-
-    // ── UI 상태 ────────────────────────────────────────────────────────────────
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
     const [saved, setSaved] = useState(false);
 
-    // ── 업종 목록 로드 ─────────────────────────────────────────────────────────
     useEffect(() => {
         api.get("/api/predict/daeupcong")
             .then((res) => {
@@ -32,21 +23,14 @@ export default function PredictModal({ bid, onClose }) {
                 set대업종(matched);
             })
             .catch(() => setError("업종 목록을 불러오지 못했습니다."));
-    }, []);   // 마운트 1회만 호출 — 업종 목록은 모델 고정값
+    }, []);
 
-    // ── ESC 키로 닫기 ──────────────────────────────────────────────────────────
     useEffect(() => {
         const handler = (e) => { if (e.key === "Escape") onClose(); };
         window.addEventListener("keydown", handler);
         return () => window.removeEventListener("keydown", handler);
     }, [onClose]);
 
-    // ── 예가범위 파싱 ─────────────────────────────────────────────────────────
-    // igunsul_bid.예가범위 실제값: "+3% ~ -3%", "+2% ~ -2%", "-" 등 문자열
-    // 3%가 포함된 경우만 지방계약법(3), 나머지는 국가계약법(2)
-    const 예가범위Valid = bid.예가범위?.includes("3%") ? 3 : 2;
-
-    // ── 예측 실행 ─────────────────────────────────────────────────────────────
     const handlePredict = async () => {
         if (!참여업체수 || parseInt(참여업체수) <= 0) {
             setError("참여업체수를 입력해주세요.");
@@ -68,18 +52,22 @@ export default function PredictModal({ bid, onClose }) {
                 bssamt:   bid.기초금액,
                 참여업체수: parseInt(참여업체수),
                 대업종:   대업종,
-                예가범위:  예가범위Valid,
+                예가범위:  bid.예가범위 ?? "+3% ~ -3%",
                 개찰일자:  bid.개찰일.slice(0, 10),
             });
             setResult(res.data.data);
         } catch (err) {
-            setError(err.response?.data?.detail || "예측 중 오류가 발생했습니다.");
+            const detail = err.response?.data?.detail;
+            if (Array.isArray(detail)) {
+                setError(detail.map(d => d.msg).join(", "));
+            } else {
+                setError(detail || "예측 중 오류가 발생했습니다.");
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    // ── 저장 ──────────────────────────────────────────────────────────────────
     const handleSave = async () => {
         if (!result) return;
         setSaving(true);
@@ -87,7 +75,7 @@ export default function PredictModal({ bid, onClose }) {
 
         try {
             await api.post("/api/predict/save", {
-                bbscode:   bid.bbscode,
+                bbscode:   String(bid.bbscode ?? ""),
                 bidNtceNo: bid.공고번호,
                 bidNtceNm: bid.공고명,
                 bssamt:    bid.기초금액,
@@ -99,14 +87,19 @@ export default function PredictModal({ bid, onClose }) {
             });
             setSaved(true);
         } catch (err) {
-            setError(err.response?.data?.detail || "저장 중 오류가 발생했습니다.");
+            const detail = err.response?.data?.detail;
+            if (Array.isArray(detail)) {
+                setError(detail.map(d => d.msg).join(", "));
+            } else {
+                setError(detail || "저장 중 오류가 발생했습니다.");
+            }
         } finally {
             setSaving(false);
         }
     };
 
-    // ── 금액 포맷 ─────────────────────────────────────────────────────────────
     const fmt = (n) => n?.toLocaleString() ?? "-";
+    const 예가범위Label = bid.예가범위?.includes("3%") ? 3 : 2;
 
     return (
         <div
@@ -134,7 +127,7 @@ export default function PredictModal({ bid, onClose }) {
                         <p className="text-gray-500">{bid.공고번호} · {bid.수요기관}</p>
                         <div className="flex gap-4 mt-2 text-xs text-gray-500">
                             <span>기초금액 <span className="font-medium text-gray-800">{fmt(bid.기초금액)}원</span></span>
-                            <span>예가범위 <span className="font-medium text-gray-800">±{예가범위Valid}%</span></span>
+                            <span>예가범위 <span className="font-medium text-gray-800">±{예가범위Label}%</span></span>
                             <span>개찰일 <span className="font-medium text-gray-800">{bid.개찰일?.slice(0, 10) ?? "-"}</span></span>
                         </div>
                     </div>
@@ -143,9 +136,7 @@ export default function PredictModal({ bid, onClose }) {
                     <div className="space-y-3">
                         {/* 투찰률 */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                투찰률
-                            </label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">투찰률</label>
                             <div className="flex gap-2">
                                 {URATE_OPTIONS.map((opt) => (
                                     <button
@@ -165,9 +156,7 @@ export default function PredictModal({ bid, onClose }) {
 
                         {/* 대업종 */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                대업종
-                            </label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">대업종</label>
                             <select
                                 value={대업종}
                                 onChange={(e) => set대업종(e.target.value)}
@@ -181,9 +170,7 @@ export default function PredictModal({ bid, onClose }) {
 
                         {/* 참여업체수 */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                참여업체수
-                            </label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">참여업체수</label>
                             <input
                                 type="number"
                                 min="1"
@@ -197,7 +184,9 @@ export default function PredictModal({ bid, onClose }) {
 
                     {/* 에러 */}
                     {error && (
-                        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+                        <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                            {typeof error === "string" ? error : JSON.stringify(error)}
+                        </p>
                     )}
 
                     {/* 예측 결과 */}

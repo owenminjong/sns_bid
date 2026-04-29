@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.bid_service import get_bid_list
-from app.routers.deps import get_current_staff
+from app.deps import get_current_staff
 
 router = APIRouter()
 

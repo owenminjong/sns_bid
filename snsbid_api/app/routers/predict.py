@@ -21,7 +21,7 @@ class PredictRequest(BaseModel):
     bssamt:   int
     참여업체수: int
     대업종:   str
-    예가범위:  int
+    예가범위:  str
     개찰일자:  str          # "YYYY-MM-DD" 또는 "YYYYMMDD"
 
 

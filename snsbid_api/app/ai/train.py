@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from app.database import engine
 
-FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc"]
+FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc", "log_기초금액"]
 TARGET   = "낙찰율"
 LE_PATH  = Path(__file__).parent / "params" / "le_daeupcong.joblib"
 
@@ -96,8 +96,11 @@ def load_or_fit_le(df):
 # ────────────────────────────────────────────
 def add_features(df, le):
     예가cols = [f"예가{i}" for i in range(1, 16)]
-    df["예가범위"] = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
-    df = df.drop(columns=예가cols)
+
+    # 예가범위: 실제 분산값을 2 or 3으로 분류 (예측 입력과 동일한 스케일)
+    df["예가범위_raw"] = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+    df["예가범위"] = df["예가범위_raw"].apply(lambda x: 3 if x > 2.5 else 2)
+    df = df.drop(columns=예가cols + ["예가범위_raw"])
 
     df["금액대"] = pd.cut(
         df["기초금액"],
@@ -109,10 +112,15 @@ def add_features(df, le):
     df["개찰월"] = pd.to_datetime(df["개찰일"]).dt.month
     df["대업종_enc"] = le.transform(df["대업종"])
     df["낙찰율"] = df["낙찰금액"] / df["기초금액"] * 100
+    df["log_기초금액"] = np.log1p(df["기초금액"])
+
+    # 시계열 정렬 (TimeSeriesSplit 전제조건)
+    df = df.sort_values("개찰일").reset_index(drop=True)
 
     print(f"[피처 생성] 낙찰율: {df['낙찰율'].min():.3f} ~ {df['낙찰율'].max():.3f} / 평균: {df['낙찰율'].mean():.3f}")
-    print(f"[피처 생성] 예가범위: {df['예가범위'].min():.3f} ~ {df['예가범위'].max():.3f}")
+    print(f"[피처 생성] 예가범위 분포:\n{df['예가범위'].value_counts().sort_index().to_string()}")
     print(f"[피처 생성] 금액대:\n{df['금액대'].value_counts().sort_index().to_string()}")
+    print(f"[피처 생성] 개찰일 정렬: {df['개찰일'].min()} ~ {df['개찰일'].max()}")
 
     return df
 
@@ -165,15 +173,15 @@ def get_models():
 # 5. 5-Fold CV 비교
 # ────────────────────────────────────────────
 def run_cv(X, y):
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-    kf     = KFold(n_splits=5, shuffle=True, random_state=42)
+    tscv   = TimeSeriesSplit(n_splits=5)
     models = get_models()
 
     print(f"\n{'='*60}")
-    print(f"  5-Fold CV 비교")
-    print(f"  전체: {len(X):,}건")
+    print(f"  TimeSeriesSplit 5-Fold CV 비교")
+    print(f"  전체: {len(X):,}건  (개찰일 기준 정렬)")
     print(f"{'='*60}")
 
     cv_results = {}
@@ -184,7 +192,7 @@ def run_cv(X, y):
 
         print(f"\n  ▶ {name}", end=" ", flush=True)
 
-        for fold, (train_idx, val_idx) in enumerate(kf.split(X), 1):
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X), 1):
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
@@ -220,12 +228,12 @@ def run_cv(X, y):
 # 6. XGBoost 튜닝
 # ────────────────────────────────────────────
 def tune_xgboost(X, y):
-    from sklearn.model_selection import RandomizedSearchCV
+    from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
     from xgboost import XGBRegressor
 
     print(f"\n{'='*60}")
     print(f"  [2단계] XGBoost 튜닝")
-    print(f"  전체: {len(X):,}건 / n_iter=50 / 5-Fold")
+    print(f"  전체: {len(X):,}건 / n_iter=50 / TimeSeriesSplit 5-Fold")
     print(f"{'='*60}")
 
     param_dist = {
@@ -237,11 +245,13 @@ def tune_xgboost(X, y):
         "min_child_weight": [1, 3, 5],
     }
 
+    tscv = TimeSeriesSplit(n_splits=5)
+
     search = RandomizedSearchCV(
         estimator=XGBRegressor(random_state=42, n_jobs=1, verbosity=0),
         param_distributions=param_dist,
         n_iter=50,
-        cv=5,
+        cv=tscv,
         scoring="neg_mean_absolute_error",
         n_jobs=-1,
         random_state=42,
