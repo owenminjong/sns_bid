@@ -5,6 +5,7 @@
 
 import sys
 import os
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
@@ -26,11 +27,11 @@ from app.models.batch import IgunsulBatch
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-PHPSESSID       = os.getenv("IGUNSUL_PHPSESSID", "")
+PHPSESSID = os.getenv("IGUNSUL_PHPSESSID", "")
 SESSION_IGUNSUL = os.getenv("IGUNSUL_SESSION", "")
 
-PART          = "79"
-LOCAL         = "6"
+PART = "79"
+LOCAL = "0"
 REQUEST_DELAY = 1.5
 
 BASE_URL = "https://www.igunsul.net"
@@ -46,15 +47,28 @@ REQ_HEADERS = {
 }
 
 CIRCLE_MAP = {
-    '①':1,'②':2,'③':3,'④':4,'⑤':5,
-    '⑥':6,'⑦':7,'⑧':8,'⑨':9,'⑩':10,
-    '⑪':11,'⑫':12,'⑬':13,'⑭':14,'⑮':15
+    "①": 1,
+    "②": 2,
+    "③": 3,
+    "④": 4,
+    "⑤": 5,
+    "⑥": 6,
+    "⑦": 7,
+    "⑧": 8,
+    "⑨": 9,
+    "⑩": 10,
+    "⑪": 11,
+    "⑫": 12,
+    "⑬": 13,
+    "⑭": 14,
+    "⑮": 15,
 }
 
 
 # ============================================================
 # SSL 우회
 # ============================================================
+
 
 class SSLAdapter(requests.adapters.HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
@@ -70,8 +84,10 @@ class SSLAdapter(requests.adapters.HTTPAdapter):
 # 유틸
 # ============================================================
 
+
 def clean(text):
     return re.sub(r"\s+", " ", text).strip() if text else ""
+
 
 def to_int(s):
     if s is None:
@@ -84,6 +100,7 @@ def to_int(s):
         return None
     return val
 
+
 def to_float(s):
     if s is None:
         return None
@@ -92,19 +109,21 @@ def to_float(s):
     except Exception:
         return None
 
+
 def parse_notice_no(full_no):
-    match = re.match(r'^(.+)-(\d{3})$', full_no)
+    match = re.match(r"^(.+)-(\d{3})$", full_no)
     if match:
         return match.group(1), match.group(2)
     return full_no, ""
+
 
 def parse_date(raw: str):
     if not raw:
         return None
     s = raw.strip()
     patterns = [
-        r'^(\d{2})/(\d{2})/(\d{2})(\d{2}):(\d{2})$',
-        r'^(\d{2})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2})$',
+        r"^(\d{2})/(\d{2})/(\d{2})(\d{2}):(\d{2})$",
+        r"^(\d{2})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2})$",
     ]
     for p in patterns:
         m = re.match(p, s)
@@ -112,37 +131,39 @@ def parse_date(raw: str):
             try:
                 return datetime.strptime(
                     f"20{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}",
-                    "%Y-%m-%d %H:%M"
+                    "%Y-%m-%d %H:%M",
                 )
             except Exception:
                 pass
-    m = re.match(r'^(\d{4})[/-](\d{2})[/-](\d{2})\s+(\d{2}):(\d{2})$', s)
+    m = re.match(r"^(\d{4})[/-](\d{2})[/-](\d{2})\s+(\d{2}):(\d{2})$", s)
     if m:
         try:
             return datetime.strptime(
                 f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}",
-                "%Y-%m-%d %H:%M"
+                "%Y-%m-%d %H:%M",
             )
         except Exception:
             pass
     return None
 
+
 def parse_chum_no(raw: str) -> str:
     if not raw:
         return ""
-    nums = re.findall(r'\d+', raw)
+    nums = re.findall(r"\d+", raw)
     valid = [str(int(x)) for x in nums if 1 <= int(x) <= 15]
     if len(valid) == 2:
         return f"{valid[0]} {valid[1]}"
     return ""
 
+
 def parse_hanga(val: str):
-    m1 = re.match(r'([\d,]+)원', val)
+    m1 = re.match(r"([\d,]+)원", val)
     h1 = m1.group(1) if m1 else ""
-    m2 = re.search(r'=\s*([\d,]+)원', val)
+    m2 = re.search(r"=\s*([\d,]+)원", val)
     h2 = m2.group(1) if m2 else ""
     if h1 and h2:
-        실제 = h1 if int(h1.replace(',','')) >= int(h2.replace(',','')) else h2
+        실제 = h1 if int(h1.replace(",", "")) >= int(h2.replace(",", "")) else h2
     else:
         실제 = h1
     return h1, h2, 실제
@@ -152,32 +173,33 @@ def parse_hanga(val: str):
 # 검증
 # ============================================================
 
+
 def validate_row(row: dict) -> list:
     issues = []
-    필수 = ['기초금액', '낙찰금액', '낙찰율', '낙찰업체', '개찰일']
+    필수 = ["기초금액", "낙찰금액", "낙찰율", "낙찰업체", "개찰일"]
     for col in 필수:
         if not row.get(col):
-            issues.append(f'{col}_누락')
+            issues.append(f"{col}_누락")
 
-    if row.get('A값') and row.get('예정가격') and row.get('투찰률'):
+    if row.get("A값") and row.get("예정가격") and row.get("투찰률"):
         try:
-            yega    = to_int(row['예정가격'])
-            A       = to_int(row['A값'])
-            rate    = to_float(row['투찰률']) / 100
+            yega = to_int(row["예정가격"])
+            A = to_int(row["A값"])
+            rate = to_float(row["투찰률"]) / 100
             h1_calc = int((yega - A) * rate + A)
-            h1_coll = to_int(row['낙찰하한가'])
+            h1_coll = to_int(row["낙찰하한가"])
             if h1_coll and abs(h1_calc - h1_coll) > 1000:
-                issues.append(f'낙찰하한가_오차_{h1_calc - h1_coll:+,}원')
+                issues.append(f"낙찰하한가_오차_{h1_calc - h1_coll:+,}원")
         except Exception:
             pass
 
     try:
-        기초        = to_int(row['기초금액'])
-        낙찰        = to_int(row['낙찰금액'])
+        기초 = to_int(row["기초금액"])
+        낙찰 = to_int(row["낙찰금액"])
         낙찰율_calc = round(낙찰 / 기초 * 100, 3)
-        낙찰율_coll = to_float(row['낙찰율'])
+        낙찰율_coll = to_float(row["낙찰율"])
         if 낙찰율_coll is not None and abs(낙찰율_calc - 낙찰율_coll) > 0.01:
-            issues.append(f'낙찰율_오차_{낙찰율_calc}')
+            issues.append(f"낙찰율_오차_{낙찰율_calc}")
     except Exception:
         pass
 
@@ -188,15 +210,17 @@ def validate_row(row: dict) -> list:
 # 세션
 # ============================================================
 
+
 def get_session():
     session = requests.Session()
     session.mount("https://", SSLAdapter())
     session.headers.update(REQ_HEADERS)
-    session.cookies.set("PHPSESSID",        PHPSESSID,        domain=".igunsul.net")
-    session.cookies.set("session_igunsul",  SESSION_IGUNSUL,  domain=".igunsul.net")
-    session.cookies.set("junja",            "1",              domain=".igunsul.net")
-    session.cookies.set("list_num_session", "500",            domain=".igunsul.net")
+    session.cookies.set("PHPSESSID", PHPSESSID, domain=".igunsul.net")
+    session.cookies.set("session_igunsul", SESSION_IGUNSUL, domain=".igunsul.net")
+    session.cookies.set("junja", "1", domain=".igunsul.net")
+    session.cookies.set("list_num_session", "500", domain=".igunsul.net")
     return session
+
 
 def is_session_valid(session) -> bool:
     try:
@@ -210,8 +234,10 @@ def is_session_valid(session) -> bool:
 # DB - 마지막 수집일
 # ============================================================
 
+
 def get_last_collected_date(db) -> date:
     from sqlalchemy import func
+
     last = db.query(func.max(IgunsulNbid.개찰일)).scalar()
     if last:
         if isinstance(last, datetime):
@@ -219,50 +245,52 @@ def get_last_collected_date(db) -> date:
         return last - timedelta(days=7)
     return date(2020, 7, 1)
 
+
 # ============================================================
 # 1단계: 리스트 수집
 # ============================================================
 
+
 def fetch_nbid_list(session, date1, date2, page=1):
     url = f"{BASE_URL}/nbid/search_list"
     payload = {
-        "page_num":        str(page),
-        "part":            PART,
-        "part2":           "",
-        "part3":           "",
-        "local":           LOCAL,
-        "search_code":     "",
-        "search_text":     "",
-        "part_section":    "1",
-        "common":          "",
-        "level":           "",
-        "list_num":        "500",
-        "align":           "1",
-        "search_tag":      "",
-        "detail_local":    "0",
-        "ipchal_date1":    date1,
-        "ipchal_date2":    date2,
-        "con_named":       "",
-        "n_num":           "",
-        "order_name":      "",
+        "page_num": str(page),
+        "part": PART,
+        "part2": "",
+        "part3": "",
+        "local": LOCAL,
+        "search_code": "",
+        "search_text": "",
+        "part_section": "1",
+        "common": "",
+        "level": "",
+        "list_num": "500",
+        "align": "1",
+        "search_tag": "",
+        "detail_local": "0",
+        "ipchal_date1": date1,
+        "ipchal_date2": date2,
+        "con_named": "",
+        "n_num": "",
+        "order_name": "",
         "order_name_type": "2",
-        "g2b_code":        "",
-        "yega_range":      "",
-        "real_org":        "",
-        "sj_rate":         "",
-        "first_com":       "",
-        "cost_eum":        "",
-        "cost_eum2":       "",
-        "cost":            "",
-        "init_exp_cost1":  "",
-        "init_exp_cost2":  "",
-        "cost1":           "",
-        "cost2":           "",
-        "g2b_yega_range":  "1",
+        "g2b_code": "",
+        "yega_range": "",
+        "real_org": "",
+        "sj_rate": "",
+        "first_com": "",
+        "cost_eum": "",
+        "cost_eum2": "",
+        "cost": "",
+        "init_exp_cost1": "",
+        "init_exp_cost2": "",
+        "cost1": "",
+        "cost2": "",
+        "g2b_yega_range": "1",
         "show_yega_range": "",
-        "cost_sel":        "init_cost",
-        "nc_sel":          "all",
-        "nc_text":         "",
+        "cost_sel": "init_cost",
+        "nc_sel": "all",
+        "nc_text": "",
     }
     resp = session.post(url, data=payload, timeout=30, verify=False)
     resp.raise_for_status()
@@ -284,7 +312,7 @@ def parse_nbid_list(html):
             continue
 
         nbbscode = anchor.get("nbbscode", "")
-        bbscode  = anchor.get("bbscode", "") or None
+        bbscode = anchor.get("bbscode", "") or None
         if not nbbscode:
             continue
 
@@ -297,54 +325,70 @@ def parse_nbid_list(html):
             공고명 = ""
 
         no_label = tr.find("label", style=lambda s: s and "5c667b" in s)
-        full_no  = no_label.get_text(strip=True).strip("[]") if no_label else ""
+        full_no = no_label.get_text(strip=True).strip("[]") if no_label else ""
         공고번호, 공고차수 = parse_notice_no(full_no)
 
         tags = [t.get_text(strip=True) for t in tr.find_all("label", class_="ij_tag")]
 
-        기초div  = tds[6].find("div", class_="ta-cost fc_blue_list") if len(tds) > 6 else None
-        추정div  = tds[6].find("div", class_="ta-cost fc_red_list")  if len(tds) > 6 else None
-        기초금액 = to_int(기초div.get_text(strip=True).replace(",","") if 기초div else None)
-        추정가격 = to_int(추정div.get_text(strip=True).replace(",","") if 추정div else None)
+        기초div = (
+            tds[6].find("div", class_="ta-cost fc_blue_list") if len(tds) > 6 else None
+        )
+        추정div = (
+            tds[6].find("div", class_="ta-cost fc_red_list") if len(tds) > 6 else None
+        )
+        기초금액 = to_int(
+            기초div.get_text(strip=True).replace(",", "") if 기초div else None
+        )
+        추정가격 = to_int(
+            추정div.get_text(strip=True).replace(",", "") if 추정div else None
+        )
 
         참여업체수_raw = clean(tds[13].get_text()) if len(tds) > 13 else ""
         참여업체수 = to_int(re.sub(r"[^\d]", "", 참여업체수_raw)) or 0
 
         개찰일 = parse_date(clean(tds[14].get_text()) if len(tds) > 14 else "")
 
-        results.append({
-            "nbbscode":          nbbscode,
-            "bbscode":           bbscode,
-            "공고번호":          공고번호,
-            "공고차수":          공고차수,
-            "공고명":            공고명,
-            "태그":              " ".join(tags),
-            "종목":              clean(tds[2].get_text()) if len(tds) > 2 else "",
-            "대업종":            clean(tds[3].get_text()) if len(tds) > 3 else "",
-            "수요기관":          clean(tds[4].get_text()) if len(tds) > 4 else "",
-            "지역":              clean(tds[5].get_text()) if len(tds) > 5 else "",
-            "기초금액":          기초금액,
-            "추정가격":          추정가격,
-            "투찰률":            None,
-            "A값":               None,
-            "순공사원가":        None,
-            "예정가격":          to_int(clean(tds[7].get_text()).replace(",","")) if len(tds) > 7 else None,
-            "사정률":            to_float(clean(tds[8].get_text())) if len(tds) > 8 else None,
-            "낙찰하한가":        None,
-            "낙찰하한가_순공사": None,
-            "낙찰하한가_실제":   None,
-            "낙찰금액":          to_int(clean(tds[9].get_text()).replace(",","")) if len(tds) > 9 else None,
-            "낙찰율":            to_float(clean(tds[10].get_text())) if len(tds) > 10 else None,
-            "낙찰업체":          clean(tds[12].get_text()) if len(tds) > 12 else "",
-            "낙찰업체_추첨번호": "",
-            "가격점수":          None,
-            "참여업체수":        참여업체수,
-            "선택복수예가":      "",
-            "복수예가_평균율":   None,
-            **{f"예가{i}": None for i in range(1, 16)},
-            **{f"추첨{i}": None for i in range(1, 16)},
-            "개찰일":            개찰일,
-        })
+        results.append(
+            {
+                "nbbscode": nbbscode,
+                "bbscode": bbscode,
+                "공고번호": 공고번호,
+                "공고차수": 공고차수,
+                "공고명": 공고명,
+                "태그": " ".join(tags),
+                "종목": clean(tds[2].get_text()) if len(tds) > 2 else "",
+                "대업종": clean(tds[3].get_text()) if len(tds) > 3 else "",
+                "수요기관": clean(tds[4].get_text()) if len(tds) > 4 else "",
+                "지역": clean(tds[5].get_text()) if len(tds) > 5 else "",
+                "기초금액": 기초금액,
+                "추정가격": 추정가격,
+                "투찰률": None,
+                "A값": None,
+                "순공사원가": None,
+                "예정가격": to_int(clean(tds[7].get_text()).replace(",", ""))
+                if len(tds) > 7
+                else None,
+                "사정률": to_float(clean(tds[8].get_text())) if len(tds) > 8 else None,
+                "낙찰하한가": None,
+                "낙찰하한가_순공사": None,
+                "낙찰하한가_실제": None,
+                "낙찰금액": to_int(clean(tds[9].get_text()).replace(",", ""))
+                if len(tds) > 9
+                else None,
+                "낙찰율": to_float(clean(tds[10].get_text()))
+                if len(tds) > 10
+                else None,
+                "낙찰업체": clean(tds[12].get_text()) if len(tds) > 12 else "",
+                "낙찰업체_추첨번호": "",
+                "가격점수": None,
+                "참여업체수": 참여업체수,
+                "선택복수예가": "",
+                "복수예가_평균율": None,
+                **{f"예가{i}": None for i in range(1, 16)},
+                **{f"추첨{i}": None for i in range(1, 16)},
+                "개찰일": 개찰일,
+            }
+        )
 
     return results
 
@@ -352,6 +396,7 @@ def parse_nbid_list(html):
 # ============================================================
 # 2단계: 세부페이지 수집
 # ============================================================
+
 
 def fetch_nbid_detail(session, nbbscode):
     url = f"{BASE_URL}/detail_nbid/index/nbid{nbbscode}"
@@ -364,10 +409,16 @@ def fetch_nbid_detail(session, nbbscode):
 def parse_nbid_detail(html):
     soup = BeautifulSoup(html, "html.parser")
     result = {
-        "투찰률": None, "A값": None, "순공사원가": None,
-        "낙찰하한가": None, "낙찰하한가_순공사": None, "낙찰하한가_실제": None,
-        "선택복수예가": "", "복수예가_평균율": None,
-        "낙찰업체_추첨번호": "", "가격점수": None,
+        "투찰률": None,
+        "A값": None,
+        "순공사원가": None,
+        "낙찰하한가": None,
+        "낙찰하한가_순공사": None,
+        "낙찰하한가_실제": None,
+        "선택복수예가": "",
+        "복수예가_평균율": None,
+        "낙찰업체_추첨번호": "",
+        "가격점수": None,
         **{f"예가{i}": None for i in range(1, 16)},
         **{f"추첨{i}": None for i in range(1, 16)},
     }
@@ -381,7 +432,7 @@ def parse_nbid_detail(html):
             cells = row.find_all(["th", "td"])
             for i in range(0, len(cells) - 1, 2):
                 key = cells[i].get_text(strip=True)
-                val = cells[i+1].get_text(strip=True) if i+1 < len(cells) else ""
+                val = cells[i + 1].get_text(strip=True) if i + 1 < len(cells) else ""
                 if "투찰률" in key:
                     m = re.search(r"([\d.]+)", val)
                     if m:
@@ -392,9 +443,9 @@ def parse_nbid_detail(html):
                     result["순공사원가"] = to_int(re.sub(r"[^\d]", "", val))
                 elif "낙찰하한가" in key:
                     h1, h2, 실제 = parse_hanga(val)
-                    result["낙찰하한가"]       = to_int(h1)
+                    result["낙찰하한가"] = to_int(h1)
                     result["낙찰하한가_순공사"] = to_int(h2) if h2 else None
-                    result["낙찰하한가_실제"]   = to_int(실제)
+                    result["낙찰하한가_실제"] = to_int(실제)
         break
 
     top_numbers = soup.find_all("span", class_="top-number")
@@ -404,7 +455,9 @@ def parse_nbid_detail(html):
         result["선택복수예가"] = " ".join(nums)
         parent = top_numbers[0].find_parent()
         if parent:
-            avg_match = re.search(r"복수예비가격 평균율\s*:\s*([-\d.]+)", clean(parent.get_text()))
+            avg_match = re.search(
+                r"복수예비가격 평균율\s*:\s*([-\d.]+)", clean(parent.get_text())
+            )
             if avg_match:
                 result["복수예가_평균율"] = to_float(avg_match.group(1))
 
@@ -423,8 +476,12 @@ def parse_nbid_detail(html):
                     if num_cell not in CIRCLE_MAP:
                         continue
                     num = CIRCLE_MAP[num_cell]
-                    result[f"예가{num}"] = to_int(cells[col_start+1].get_text(strip=True).replace(",",""))
-                    result[f"추첨{num}"] = to_int(cells[col_start+3].get_text(strip=True))
+                    result[f"예가{num}"] = to_int(
+                        cells[col_start + 1].get_text(strip=True).replace(",", "")
+                    )
+                    result[f"추첨{num}"] = to_int(
+                        cells[col_start + 3].get_text(strip=True)
+                    )
         break
 
     for sec in sections:
@@ -434,8 +491,8 @@ def parse_nbid_detail(html):
         rows = sec.find_all("tr")
         if len(rows) < 2:
             break
-        header = [c.get_text(strip=True) for c in rows[0].find_all(["th","td"])]
-        chum_idx  = next((i for i, h in enumerate(header) if "추첨번호" in h), None)
+        header = [c.get_text(strip=True) for c in rows[0].find_all(["th", "td"])]
+        chum_idx = next((i for i, h in enumerate(header) if "추첨번호" in h), None)
         score_idx = next((i for i, h in enumerate(header) if "가격점수" in h), None)
         winner_row = None
         for row in rows[1:]:
@@ -450,7 +507,9 @@ def parse_nbid_detail(html):
                 break
         if winner_row:
             if chum_idx is not None and chum_idx < len(winner_row):
-                result["낙찰업체_추첨번호"] = parse_chum_no(clean(winner_row[chum_idx].get_text()))
+                result["낙찰업체_추첨번호"] = parse_chum_no(
+                    clean(winner_row[chum_idx].get_text())
+                )
             if score_idx is not None and score_idx < len(winner_row):
                 m = re.match(r"^([\d.]+)", clean(winner_row[score_idx].get_text()))
                 if m:
@@ -464,13 +523,16 @@ def parse_nbid_detail(html):
 # DB 저장
 # ============================================================
 
+
 def save_to_db(db: Session, rows: list, today: date) -> tuple:
     added = skipped = recheck = 0
 
     for row in rows:
-        exists = db.query(IgunsulNbid).filter(
-            IgunsulNbid.nbbscode == row["nbbscode"]
-        ).first()
+        exists = (
+            db.query(IgunsulNbid)
+            .filter(IgunsulNbid.nbbscode == row["nbbscode"])
+            .first()
+        )
         if exists:
             skipped += 1
             continue
@@ -479,30 +541,54 @@ def save_to_db(db: Session, rows: list, today: date) -> tuple:
 
         if issues:
             rc = IgunsulRecheck(
-                nbbscode = row["nbbscode"],
-                bbscode  = row.get("bbscode") or "",
-                공고명   = row.get("공고명", ""),
-                수집일자 = today,
-                이슈내용 = " | ".join(issues),
+                nbbscode=row["nbbscode"],
+                bbscode=row.get("bbscode") or "",
+                공고명=row.get("공고명", ""),
+                수집일자=today,
+                이슈내용=" | ".join(issues),
             )
             db.add(rc)
             recheck += 1
             print(f"  ⚠️  재확인: {row['공고명'][:30]} → {issues}")
         else:
             nbid = IgunsulNbid(
-                nbbscode = row["nbbscode"],
-                bbscode  = row.get("bbscode"),
-                **{k: row.get(k) for k in [
-                    "공고번호","공고차수","공고명","태그","종목","대업종","수요기관","지역",
-                    "기초금액","추정가격","투찰률","A값","순공사원가","예정가격","사정률",
-                    "낙찰하한가","낙찰하한가_순공사","낙찰하한가_실제",
-                    "낙찰금액","낙찰율","낙찰업체","낙찰업체_추첨번호","가격점수","참여업체수",
-                    "선택복수예가","복수예가_평균율",
-                    *[f"예가{i}" for i in range(1,16)],
-                    *[f"추첨{i}" for i in range(1,16)],
-                    "개찰일",
-                ]},
-                수집일자 = today,
+                nbbscode=row["nbbscode"],
+                bbscode=row.get("bbscode"),
+                **{
+                    k: row.get(k)
+                    for k in [
+                        "공고번호",
+                        "공고차수",
+                        "공고명",
+                        "태그",
+                        "종목",
+                        "대업종",
+                        "수요기관",
+                        "지역",
+                        "기초금액",
+                        "추정가격",
+                        "투찰률",
+                        "A값",
+                        "순공사원가",
+                        "예정가격",
+                        "사정률",
+                        "낙찰하한가",
+                        "낙찰하한가_순공사",
+                        "낙찰하한가_실제",
+                        "낙찰금액",
+                        "낙찰율",
+                        "낙찰업체",
+                        "낙찰업체_추첨번호",
+                        "가격점수",
+                        "참여업체수",
+                        "선택복수예가",
+                        "복수예가_평균율",
+                        *[f"예가{i}" for i in range(1, 16)],
+                        *[f"추첨{i}" for i in range(1, 16)],
+                        "개찰일",
+                    ]
+                },
+                수집일자=today,
             )
             db.add(nbid)
             added += 1
@@ -516,6 +602,7 @@ def save_to_db(db: Session, rows: list, today: date) -> tuple:
 # 배치 로그
 # ============================================================
 
+
 def batch_start(db):
     b = IgunsulBatch(batch_type="nbid", status=0)
     db.add(b)
@@ -523,15 +610,16 @@ def batch_start(db):
     db.refresh(b)
     return b
 
+
 def batch_end(db, b, status, total, ok, recheck, skip, error, msg=""):
-    b.status      = status
-    b.ended_at    = datetime.now()
-    b.total_cnt   = total
-    b.ok_cnt      = ok
+    b.status = status
+    b.ended_at = datetime.now()
+    b.total_cnt = total
+    b.ok_cnt = ok
     b.recheck_cnt = recheck
-    b.skip_cnt    = skip
-    b.error_cnt   = error
-    b.message     = msg
+    b.skip_cnt = skip
+    b.error_cnt = error
+    b.message = msg
     db.commit()
 
 
@@ -539,13 +627,19 @@ def batch_end(db, b, status, total, ok, recheck, skip, error, msg=""):
 # 메인
 # ============================================================
 
+
 def main():
-    today   = date.today()
-    db      = SessionLocal()
-    batch   = batch_start(db)
+    today = date.today()
+    db = SessionLocal()
+    batch = batch_start(db)
     session = get_session()
 
     total_added = total_recheck = total_skip = total_error = 0
+
+    # 종료 시간 설정 (오전 7시)
+    stop_time = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+    if datetime.now() >= stop_time:
+        stop_time += timedelta(days=1)
 
     # 마지막 수집일부터 시작
     current = get_last_collected_date(db)
@@ -553,32 +647,60 @@ def main():
     print("=" * 60)
     print(f"  아이건설넷 낙찰결과 수집  |  {today}")
     print(f"  시작일: {current} ~ {today}")
+    print(f"  자동 종료 시간: {stop_time.strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
 
     try:
         while current < today:
-
             # 세션 체크
             if not is_session_valid(session):
                 msg = "세션 만료. .env PHPSESSID/SESSION 갱신 후 재실행 필요"
                 print(f"\n❌ {msg}")
-                batch_end(db, batch, 2,
-                          total_added + total_recheck + total_skip,
-                          total_added, total_recheck, total_skip, total_error, msg)
+                batch_end(
+                    db,
+                    batch,
+                    2,
+                    total_added + total_recheck + total_skip,
+                    total_added,
+                    total_recheck,
+                    total_skip,
+                    total_error,
+                    msg,
+                )
                 return
 
-            next_period = min(current + relativedelta(months=6) - timedelta(days=1), today)
+            next_period = min(
+                current + relativedelta(months=6) - timedelta(days=1), today
+            )
             date1 = current.strftime("%Y-%m-%d")
             date2 = next_period.strftime("%Y-%m-%d")
 
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"  기간: {date1} ~ {date2}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
 
             page = 1
             while True:
+                # 시간 체크
+                if datetime.now() >= stop_time:
+                    msg = f"예약 종료: {stop_time.strftime('%H:%M')} 도달"
+                    print(f"\n⏰ {msg}")
+                    batch_end(
+                        db,
+                        batch,
+                        1,
+                        total_added + total_recheck + total_skip,
+                        total_added,
+                        total_recheck,
+                        total_skip,
+                        total_error,
+                        msg,
+                    )
+                    db.close()
+                    return
+
                 print(f"\n  [페이지 {page}] 수집 중...")
-                html     = fetch_nbid_list(session, date1, date2, page)
+                html = fetch_nbid_list(session, date1, date2, page)
                 all_rows = parse_nbid_list(html)
                 print(f"  → 파싱: {len(all_rows)}건")
 
@@ -589,7 +711,9 @@ def main():
                 for i, row in enumerate(all_rows, 1):
                     print(f"    [{i}/{len(all_rows)}] {row['공고명'][:35]}...")
                     try:
-                        detail = parse_nbid_detail(fetch_nbid_detail(session, row["nbbscode"]))
+                        detail = parse_nbid_detail(
+                            fetch_nbid_detail(session, row["nbbscode"])
+                        )
                         row.update(detail)
                     except Exception as e:
                         print(f"      ❌ 세부 오류: {e}")
@@ -597,9 +721,9 @@ def main():
                     time.sleep(REQUEST_DELAY)
 
                 added, skipped, recheck = save_to_db(db, all_rows, today)
-                total_added   += added
+                total_added += added
                 total_recheck += recheck
-                total_skip    += skipped
+                total_skip += skipped
                 print(f"  → 저장: {added}건 / 재확인: {recheck}건 / 중복: {skipped}건")
 
                 if len(all_rows) < 500:
@@ -610,19 +734,37 @@ def main():
 
             current = next_period + timedelta(days=1)
 
-        batch_end(db, batch, 1,
-                  total_added + total_recheck + total_skip,
-                  total_added, total_recheck, total_skip, total_error)
-        print(f"\n✅ 전체 완료! 저장: {total_added}건 / 재확인: {total_recheck}건 / 중복: {total_skip}건")
+        batch_end(
+            db,
+            batch,
+            1,
+            total_added + total_recheck + total_skip,
+            total_added,
+            total_recheck,
+            total_skip,
+            total_error,
+        )
+        print(
+            f"\n✅ 전체 완료! 저장: {total_added}건 / 재확인: {total_recheck}건 / 중복: {total_skip}건"
+        )
 
     except Exception as e:
         import traceback
+
         print(f"\n❌ 오류: {e}")
         traceback.print_exc()
         db.rollback()
-        batch_end(db, batch, 2,
-                  total_added + total_recheck + total_skip,
-                  total_added, total_recheck, total_skip, total_error, str(e))
+        batch_end(
+            db,
+            batch,
+            2,
+            total_added + total_recheck + total_skip,
+            total_added,
+            total_recheck,
+            total_skip,
+            total_error,
+            str(e),
+        )
 
     finally:
         db.close()

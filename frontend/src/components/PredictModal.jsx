@@ -1,15 +1,11 @@
-// frontend/src/components/PredictModal.jsx
 import { useState, useEffect } from "react";
 import api from "../api";
 
-const URATE_OPTIONS = [86.745, 87.745, 89.745];
-
 export default function PredictModal({ bid, onClose }) {
-    const [urate, setUrate] = useState(87.745);
-    const [참여업체수, set참여업체수] = useState("");
     const [daeupcongList, setDaeupcongList] = useState([]);
     const [대업종, set대업종] = useState("");
     const [result, setResult] = useState(null);
+    const [selectedUrate, setSelectedUrate] = useState(null);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
@@ -32,30 +28,25 @@ export default function PredictModal({ bid, onClose }) {
     }, [onClose]);
 
     const handlePredict = async () => {
-        if (!참여업체수 || parseInt(참여업체수) <= 0) {
-            setError("참여업체수를 입력해주세요.");
-            return;
-        }
         if (!bid.개찰일) {
             setError("개찰일 정보가 없습니다.");
             return;
         }
-
         setLoading(true);
         setError(null);
         setResult(null);
         setSaved(false);
+        setSelectedUrate(null);
 
         try {
             const res = await api.post("/api/predict", {
-                투찰률:    urate,
-                bssamt:   bid.기초금액,
-                참여업체수: parseInt(참여업체수),
-                대업종:   대업종,
-                예가범위:  bid.예가범위 ?? "+3% ~ -3%",
-                개찰일자:  bid.개찰일.slice(0, 10),
+                bssamt:  bid.기초금액,
+                대업종:  대업종,
+                예가범위: bid.예가범위 ?? "+3% ~ -3%",
+                개찰일자: bid.개찰일.slice(0, 10),
             });
             setResult(res.data.data);
+            setSelectedUrate(res.data.data.recommended_urate);
         } catch (err) {
             const detail = err.response?.data?.detail;
             if (Array.isArray(detail)) {
@@ -69,10 +60,12 @@ export default function PredictModal({ bid, onClose }) {
     };
 
     const handleSave = async () => {
-        if (!result) return;
+        if (!result || !selectedUrate) return;
+        const selected = result.results.find(r => r.투찰률 === selectedUrate);
+        if (!selected) return;
+
         setSaving(true);
         setError(null);
-
         try {
             await api.post("/api/predict/save", {
                 bbscode:   String(bid.bbscode ?? ""),
@@ -80,10 +73,10 @@ export default function PredictModal({ bid, onClose }) {
                 bidNtceNm: bid.공고명,
                 bssamt:    bid.기초금액,
                 Aamt:      bid.순공사원가 ?? 0,
-                urate:     urate,
-                preamt:    result.predict_amt,
-                preRate:   result.predict_rate,
-                preRate2:  result.model_mae_pct,
+                urate:     selectedUrate,
+                preamt:    selected.predict_amt,
+                preRate:   selected.predict_rate,
+                preRate2:  selected.model_mae_pct,
             });
             setSaved(true);
         } catch (err) {
@@ -100,23 +93,19 @@ export default function PredictModal({ bid, onClose }) {
 
     const fmt = (n) => n?.toLocaleString() ?? "-";
     const 예가범위Label = bid.예가범위?.includes("3%") ? 3 : 2;
+    const selected = result?.results.find(r => r.투찰률 === selectedUrate);
 
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
 
                 {/* 헤더 */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-800">낙찰가 예측</h2>
-                    <button
-                        onClick={onClose}
-                        className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-                    >
-                        ×
-                    </button>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
                 </div>
 
                 <div className="px-6 py-5 space-y-5">
@@ -132,54 +121,18 @@ export default function PredictModal({ bid, onClose }) {
                         </div>
                     </div>
 
-                    {/* 입력 영역 */}
-                    <div className="space-y-3">
-                        {/* 투찰률 */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">투찰률</label>
-                            <div className="flex gap-2">
-                                {URATE_OPTIONS.map((opt) => (
-                                    <button
-                                        key={opt}
-                                        onClick={() => setUrate(opt)}
-                                        className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                                            urate === opt
-                                                ? "bg-blue-600 text-white border-blue-600"
-                                                : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"
-                                        }`}
-                                    >
-                                        {opt}%
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 대업종 */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">대업종</label>
-                            <select
-                                value={대업종}
-                                onChange={(e) => set대업종(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                                {daeupcongList.map((c) => (
-                                    <option key={c} value={c}>{c}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* 참여업체수 */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">참여업체수</label>
-                            <input
-                                type="number"
-                                min="1"
-                                value={참여업체수}
-                                onChange={(e) => set참여업체수(e.target.value)}
-                                placeholder="예: 50"
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
+                    {/* 대업종 */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">대업종</label>
+                        <select
+                            value={대업종}
+                            onChange={(e) => set대업종(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            {daeupcongList.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* 에러 */}
@@ -189,40 +142,59 @@ export default function PredictModal({ bid, onClose }) {
                         </p>
                     )}
 
-                    {/* 예측 결과 */}
+                    {/* 예측 결과 - 3개 카드 */}
                     {result && (
-                        <div className="bg-blue-50 rounded-xl p-4 space-y-3">
-                            {result.warning && (
-                                <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                                    ⚠️ {result.warning}
-                                </p>
-                            )}
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm text-gray-600">예측 낙찰금액</span>
-                                <span className="text-xl font-bold text-blue-700">
-                                    {fmt(result.predict_amt)}원
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm text-gray-600">예측 낙찰율</span>
-                                <span className="text-lg font-semibold text-blue-600">
-                                    {result.predict_rate}%
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs text-gray-500">
-                                <span>예측 범위 (±MAE {result.model_mae_pct}%)</span>
-                                <span>{fmt(result.range.min)} ~ {fmt(result.range.max)}원</span>
-                            </div>
+                        <div className="space-y-2">
+                            <p className="text-xs text-gray-500">투찰률을 선택하면 해당 금액으로 저장됩니다</p>
+                            {result.results.map((r) => {
+                                const isRecommended = r.투찰률 === result.recommended_urate;
+                                const isSelected = r.투찰률 === selectedUrate;
+                                return (
+                                    <div
+                                        key={r.투찰률}
+                                        onClick={() => setSelectedUrate(r.투찰률)}
+                                        className={`relative rounded-xl p-4 cursor-pointer border-2 transition-all ${
+                                            isSelected
+                                                ? "border-blue-500 bg-blue-50"
+                                                : "border-gray-200 bg-white hover:border-blue-300"
+                                        }`}
+                                    >
+                                        {isRecommended && (
+                                            <span className="absolute top-2 right-2 text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">
+                                                추천
+                                            </span>
+                                        )}
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-semibold text-gray-700">
+                                                투찰률 {r.투찰률}%
+                                            </span>
+                                            <span className="text-lg font-bold text-blue-700">
+                                                {fmt(r.predict_amt)}원
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between mt-1 text-xs text-gray-500">
+                                            <span>예측 낙찰율 {r.predict_rate}%</span>
+                                            <span>범위 {fmt(r.range.min)} ~ {fmt(r.range.max)}원</span>
+                                        </div>
+                                        {r.warning && (
+                                            <p className="mt-1 text-xs text-amber-600">⚠️ {r.warning}</p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            <p className="text-xs text-gray-400 text-right">
+                                모델 MAE ±{result.results[0]?.model_mae_pct}%
+                            </p>
                             {saved && (
                                 <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2 text-center">
-                                    ✅ 저장 완료
+                                    ✅ 저장 완료 (투찰률 {selectedUrate}%)
                                 </p>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* 푸터 버튼 */}
+                {/* 푸터 */}
                 <div className="flex gap-3 px-6 py-4 border-t border-gray-200">
                     <button
                         onClick={handlePredict}
@@ -231,13 +203,13 @@ export default function PredictModal({ bid, onClose }) {
                     >
                         {loading ? "예측 중..." : "예측"}
                     </button>
-                    {result && !saved && (
+                    {result && !saved && selectedUrate && (
                         <button
                             onClick={handleSave}
                             disabled={saving}
                             className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white rounded-lg text-sm font-medium transition-colors"
                         >
-                            {saving ? "저장 중..." : "저장"}
+                            {saving ? "저장 중..." : `${selectedUrate}%로 저장`}
                         </button>
                     )}
                     <button

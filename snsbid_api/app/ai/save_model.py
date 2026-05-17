@@ -17,18 +17,20 @@ from pathlib import Path
 from sqlalchemy import text
 from xgboost import XGBRegressor
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from app.database import engine
 
-MODEL_DIR  = Path(__file__).parent / "models"
+MODEL_DIR = Path(__file__).parent / "models"
 PARAMS_DIR = Path(__file__).parent / "params"
-LE_PATH    = PARAMS_DIR / "le_daeupcong.joblib"
+LE_PATH = PARAMS_DIR / "le_daeupcong.joblib"
 MODEL_DIR.mkdir(exist_ok=True)
 PARAMS_DIR.mkdir(exist_ok=True)
 
-FEATURES = ["투찰률", "예가범위", "금액대", "참여업체수", "개찰월", "대업종_enc", "log_기초금액"]
-TARGET   = "낙찰율"
+FEATURES = ["투찰률", "예가범위", "금액대", "개찰월", "대업종_enc", "log_기초금액"]
+TARGET = "낙찰율"
 
 # ────────────────────────────────────────────
 # 파라미터 로드
@@ -43,14 +45,14 @@ if _params_path.exists():
 else:
     print("⚠️  params.json 없음 → 기본값 사용 (train.py 먼저 실행 권장)")
     PARAMS = {
-        "n_estimators":     500,
-        "learning_rate":    0.05,
-        "max_depth":        6,
-        "subsample":        0.8,
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "max_depth": 6,
+        "subsample": 0.8,
         "colsample_bytree": 0.8,
-        "random_state":     42,
-        "n_jobs":           -1,
-        "verbosity":        0,
+        "random_state": 42,
+        "n_jobs": -1,
+        "verbosity": 0,
     }
 
 
@@ -60,7 +62,7 @@ else:
 def load_data():
     query = text("""
         SELECT
-            기초금액, 투찰률, 대업종, 참여업체수, 개찰일,
+            기초금액, 투찰률, 대업종, 개찰일,
             예가1,  예가2,  예가3,  예가4,  예가5,
             예가6,  예가7,  예가8,  예가9,  예가10,
             예가11, 예가12, 예가13, 예가14, 예가15,
@@ -70,7 +72,6 @@ def load_data():
           AND 낙찰금액 > 0
           AND 낙찰금액 / 기초금액 * 100 BETWEEN 85 AND 91
           AND 예가1 IS NOT NULL
-          AND 참여업체수 <= 10000
     """)
 
     with engine.connect() as conn:
@@ -89,8 +90,7 @@ def load_data():
 def load_le(df):
     if not LE_PATH.exists():
         raise FileNotFoundError(
-            f"le_daeupcong.joblib 없음: {LE_PATH}\n"
-            f"→ train.py 먼저 실행하세요."
+            f"le_daeupcong.joblib 없음: {LE_PATH}\n→ train.py 먼저 실행하세요."
         )
 
     le = joblib.load(LE_PATH)
@@ -112,14 +112,14 @@ def load_le(df):
 def add_features(df, le):
     예가cols = [f"예가{i}" for i in range(1, 16)]
 
-    예가범위_raw = (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+    예가범위_raw = (
+        (df[예가cols].max(axis=1) - df[예가cols].min(axis=1)) / df["기초금액"] * 100
+    )
     df["예가범위"] = 예가범위_raw.apply(lambda x: 3 if x > 2.5 else 2)
     df = df.drop(columns=예가cols)
 
     df["금액대"] = pd.cut(
-        df["기초금액"],
-        bins=[0, 1e9, 3e9, 5e9, float("inf")],
-        labels=[1, 2, 3, 4]
+        df["기초금액"], bins=[0, 1e9, 3e9, 5e9, float("inf")], labels=[1, 2, 3, 4]
     )
     df["금액대"] = pd.to_numeric(df["금액대"], errors="coerce").fillna(1).astype(int)
 
@@ -152,13 +152,13 @@ def train_and_save(df, le):
 
     tscv = TimeSeriesSplit(n_splits=5)
 
-    mae_list      = []
+    mae_list = []
     all_residuals = []
 
     for train_idx, val_idx in tscv.split(X):
         m = XGBRegressor(**cv_params)
         m.fit(X.iloc[train_idx], y.iloc[train_idx])
-        pred      = m.predict(X.iloc[val_idx])
+        pred = m.predict(X.iloc[val_idx])
         residuals = y.iloc[val_idx].values - pred
         mae_list.append(np.mean(np.abs(residuals)))
         all_residuals.extend(residuals.tolist())
@@ -179,31 +179,36 @@ def train_and_save(df, le):
     for feat, imp in importances.sort_values(ascending=False).items():
         print(f"    {feat}: {imp:.4f}")
 
-    today    = datetime.now().strftime("%Y%m%d")
+    today = datetime.now().strftime("%Y%m%d")
     filename = f"xgboost_no_a_{today}.joblib"
     filepath = MODEL_DIR / filename
 
-    joblib.dump({
-        "model":         model,
-        "features":      FEATURES,
-        "algo":          "xgboost",
-        "model_type":    "no_a",
-        "target":        TARGET,
-        "trained_at":    datetime.now().isoformat(),
-        "train_samples": len(X),
-        "label_encoder": le,
-        "cv_mae_pct":    cv_mae_pct,
-        "cv_std_pct":    cv_std_pct,
-        "cv_mae_5억":    cv_mae_5억,
-        "params":        PARAMS,
-    }, filepath)
+    joblib.dump(
+        {
+            "model": model,
+            "features": FEATURES,
+            "algo": "xgboost",
+            "model_type": "no_a",
+            "target": TARGET,
+            "trained_at": datetime.now().isoformat(),
+            "train_samples": len(X),
+            "label_encoder": le,
+            "cv_mae_pct": cv_mae_pct,
+            "cv_std_pct": cv_std_pct,
+            "cv_mae_5억": cv_mae_5억,
+            "params": PARAMS,
+        },
+        filepath,
+    )
 
     latest_path = MODEL_DIR / "latest.joblib"
     shutil.copy2(filepath, latest_path)
 
     print(f"\n  💾 저장 완료: {filepath}")
     print(f"  📋 latest.joblib 갱신 완료")
-    print(f"  CV MAE: {cv_mae_pct:.4f}% / CV STD: {cv_std_pct:.4f}% / 5억 기준 {cv_mae_5억}만원")
+    print(
+        f"  CV MAE: {cv_mae_pct:.4f}% / CV STD: {cv_std_pct:.4f}% / 5억 기준 {cv_mae_5억}만원"
+    )
     return filepath
 
 
@@ -211,18 +216,18 @@ def train_and_save(df, le):
 # 5. 메인
 # ────────────────────────────────────────────
 def main():
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  숭늉샘B1D - 최종 모델 학습 및 저장 / no_a 단일")
-    print("="*60)
+    print("=" * 60)
 
-    df   = load_data()
-    le   = load_le(df)
-    df   = add_features(df, le)
+    df = load_data()
+    le = load_le(df)
+    df = add_features(df, le)
     path = train_and_save(df, le)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  ✅ 완료")
-    print("="*60)
+    print("=" * 60)
     print(f"  저장 경로: {path}")
     print()
 

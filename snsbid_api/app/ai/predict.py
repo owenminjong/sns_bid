@@ -6,7 +6,6 @@ XGBoost 낙찰율 예측 모듈
     투찰률      - 사용자 입력 (%)
     예가범위    - 지방계약법=3, 국가계약법=2
     금액대      - 1:10억이하 / 2:10~30억 / 3:30~50억 / 4:50억초과  (파생)
-    참여업체수  - 개찰 참여 업체 수
     개찰월      - 개찰일자에서 추출 (파생)
     대업종_enc  - LabelEncoder 변환된 정수
     log_기초금액 - np.log1p(기초금액) (파생)
@@ -22,11 +21,11 @@ from datetime import datetime
 from typing import Optional
 
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
-BASE_DIR   = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "latest.joblib"
 
 # ── 금액대 구간 정의 (train.py pd.cut bins/labels와 반드시 동일) ───────────────
-AMT_BINS   = [0, 1_000_000_000, 3_000_000_000, 5_000_000_000, float("inf")]
+AMT_BINS = [0, 1_000_000_000, 3_000_000_000, 5_000_000_000, float("inf")]
 AMT_LABELS = [1, 2, 3, 4]
 
 # ── 모델 싱글톤 ────────────────────────────────────────────────────────────────
@@ -34,10 +33,6 @@ _bundle: Optional[dict] = None
 
 
 def load_model() -> dict:
-    """
-    모델 번들을 로드하고 캐싱한다.
-    반환 dict 키: model, features, label_encoder, cv_mae_pct, cv_std_pct, params 등
-    """
     global _bundle
     if _bundle is None:
         if not MODEL_PATH.exists():
@@ -69,12 +64,11 @@ def get_대업종_classes() -> list[str]:
 
 
 def predict(
-        투찰률: float,
-        bssamt: int,
-        참여업체수: int,
-        대업종: str,
-        예가범위: int,
-        개찰일자: str,
+    투찰률: float,
+    bssamt: int,
+    대업종: str,
+    예가범위: int,
+    개찰일자: str,
 ) -> dict:
     """
     낙찰율 및 낙찰예상금액을 예측한다.
@@ -82,21 +76,20 @@ def predict(
     Args:
         투찰률:     사용자가 입찰 시 쓰려는 투찰율 (%)  ex) 88.5
         bssamt:    기초금액 (원)                        ex) 500_000_000
-        참여업체수: 개찰 참여 업체 수                   ex) 15
         대업종:    대업종명 문자열                       ex) "철콘"
         예가범위:  2(국가계약법) 또는 3(지방계약법)      ex) 2
         개찰일자:  개찰 예정일                           ex) "2026-04-30"
 
     Returns:
         {
-            "predict_rate": float,   # 예측 낙찰율 (%)
-            "predict_amt": int,      # 예측 낙찰금액 (원)
+            "predict_rate": float,
+            "predict_amt": int,
             "warning": str | None,
             "model_mae_pct": float,
             "model_mae_amt": int,
             "range": {
-                "min": int,          # 90% 신뢰구간 하한
-                "max": int,          # 90% 신뢰구간 상한
+                "min": int,
+                "max": int,
             },
             "meta": {
                 "금액대": int,
@@ -116,55 +109,59 @@ def predict(
         raise ValueError(f"투찰률은 50~110 사이여야 합니다. 입력값: {투찰률}")
     if bssamt <= 0:
         raise ValueError(f"기초금액은 0보다 커야 합니다. 입력값: {bssamt}")
-    if 참여업체수 <= 0:
-        raise ValueError(f"참여업체수는 0보다 커야 합니다. 입력값: {참여업체수}")
     if 예가범위 not in (2, 3):
-        raise ValueError(f"예가범위는 2(국가계약법) 또는 3(지방계약법)이어야 합니다. 입력값: {예가범위}")
+        raise ValueError(
+            f"예가범위는 2(국가계약법) 또는 3(지방계약법)이어야 합니다. 입력값: {예가범위}"
+        )
 
     # ── 개찰일자 파싱 ─────────────────────────────────────────────────────────
     개찰일자 = 개찰일자.replace("-", "").replace("/", "")
     try:
         dt = datetime.strptime(개찰일자, "%Y%m%d")
     except ValueError:
-        raise ValueError(f"개찰일자 형식이 올바르지 않습니다: {개찰일자} (YYYY-MM-DD 또는 YYYYMMDD)")
+        raise ValueError(
+            f"개찰일자 형식이 올바르지 않습니다: {개찰일자} (YYYY-MM-DD 또는 YYYYMMDD)"
+        )
     개찰월 = dt.month
 
     # ── 파생 변수 계산 ────────────────────────────────────────────────────────
-    bundle     = load_model()
-    금액대     = _resolve_금액대(bssamt)
+    bundle = load_model()
+    금액대 = _resolve_금액대(bssamt)
     대업종_enc, fallback_used = _encode_대업종(bundle["label_encoder"], 대업종)
-    warning    = (
+    warning = (
         f"등록되지 않은 업종('{대업종}')이 입력되어 '기타'로 처리되었습니다."
-        if fallback_used else None
+        if fallback_used
+        else None
     )
 
     # ── 입력 DataFrame 구성 ───────────────────────────────────────────────────
-    features = bundle["features"]  # ['투찰률', '예가범위', '금액대', '참여업체수', '개찰월', '대업종_enc', 'log_기초금액']
+    features = bundle[
+        "features"
+    ]  # ['투찰률', '예가범위', '금액대', '개찰월', '대업종_enc', 'log_기초금액']
     row = {
-        "투찰률":      투찰률,
-        "예가범위":    예가범위,
-        "금액대":      금액대,
-        "참여업체수":  참여업체수,
-        "개찰월":      개찰월,
-        "대업종_enc":  대업종_enc,
+        "투찰률": 투찰률,
+        "예가범위": 예가범위,
+        "금액대": 금액대,
+        "개찰월": 개찰월,
+        "대업종_enc": 대업종_enc,
         "log_기초금액": float(np.log1p(bssamt)),
     }
     X = pd.DataFrame([row], columns=features)
 
     # ── 예측 ─────────────────────────────────────────────────────────────────
-    model        = bundle["model"]
+    model = bundle["model"]
     predict_rate = float(model.predict(X)[0])
 
     # ── 결과 계산 ─────────────────────────────────────────────────────────────
     predict_amt = int(bssamt * predict_rate / 100)
-    mae_pct     = bundle["cv_mae_pct"]
-    mae_amt     = int(bssamt * mae_pct / 100)
-    std_pct     = bundle.get("cv_std_pct", mae_pct)  # 구버전 모델 호환
+    mae_pct = bundle["cv_mae_pct"]
+    mae_amt = int(bssamt * mae_pct / 100)
+    std_pct = bundle.get("cv_std_pct", mae_pct)
 
     return {
         "predict_rate": round(predict_rate, 3),
-        "predict_amt":  predict_amt,
-        "warning":      warning,
+        "predict_amt": predict_amt,
+        "warning": warning,
         "model_mae_pct": round(mae_pct, 4),
         "model_mae_amt": mae_amt,
         "range": {
@@ -172,10 +169,10 @@ def predict(
             "max": int(bssamt * (predict_rate + 1.645 * std_pct) / 100),
         },
         "meta": {
-            "금액대":           금액대,
-            "개찰월":           개찰월,
-            "대업종_enc":       대업종_enc,
+            "금액대": 금액대,
+            "개찰월": 개찰월,
+            "대업종_enc": 대업종_enc,
             "model_trained_at": bundle.get("trained_at", ""),
-            "train_samples":    bundle.get("train_samples", 0),
+            "train_samples": bundle.get("train_samples", 0),
         },
     }

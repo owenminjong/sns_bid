@@ -18,8 +18,8 @@ def get_daeupcong() -> dict:
         classes = get_대업종_classes()
         return {
             "status": "success",
-            "data":   classes,
-            "total":  len(classes),
+            "data": classes,
+            "total": len(classes),
         }
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -28,27 +28,44 @@ def get_daeupcong() -> dict:
 # ────────────────────────────────────────────
 # 2. 예측 실행
 # ────────────────────────────────────────────
+URATE_OPTIONS = [86.745, 87.745, 89.745]
+
+
 def run_predict(
-        투찰률: float,
-        bssamt: int,
-        참여업체수: int,
-        대업종: str,
-        예가범위: str,
-        개찰일자: str,
+    bssamt: int,
+    대업종: str,
+    예가범위: str,
+    개찰일자: str,
 ) -> dict:
-    # 예가범위 문자열 → int 파싱: "+3% ~ -3%" → 3, "+2% ~ -2%" → 2
     예가범위_int = 3 if "3%" in str(예가범위) else 2
 
     try:
-        result = predict(
-            투찰률=투찰률,
-            bssamt=bssamt,
-            참여업체수=참여업체수,
-            대업종=대업종,
-            예가범위=예가범위_int,
-            개찰일자=개찰일자,
-        )
-        return {"status": "success", "data": result}
+        results = []
+        for urate in URATE_OPTIONS:
+            result = predict(
+                투찰률=urate,
+                bssamt=bssamt,
+                대업종=대업종,
+                예가범위=예가범위_int,
+                개찰일자=개찰일자,
+            )
+            results.append(
+                {
+                    "투찰률": urate,
+                    **result,
+                }
+            )
+
+        # 추천: predict_rate가 투찰률에 가장 가까운 것
+        best = min(results, key=lambda x: abs(x["predict_rate"] - x["투찰률"]))
+
+        return {
+            "status": "success",
+            "data": {
+                "results": results,
+                "recommended_urate": best["투찰률"],
+            },
+        }
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -60,17 +77,17 @@ def run_predict(
 # 3. 예측 저장
 # ────────────────────────────────────────────
 def save_predict(
-        db,
-        sfcode: int,        # router에서 current_staff["sfcode"] 로 전달
-        bbscode: str,       # betc 컬럼에 저장 — 공고 역추적용 (betc 용도 불명으로 임시 활용)
-        bidNtceNo: str,
-        bidNtceNm: str,
-        bssamt: int,
-        Aamt: int,
-        urate: float,
-        preamt: int,
-        preRate: float,
-        preRate2: float,
+    db,
+    sfcode: int,  # router에서 current_staff["sfcode"] 로 전달
+    bbscode: str,  # betc 컬럼에 저장 — 공고 역추적용 (betc 용도 불명으로 임시 활용)
+    bidNtceNo: str,
+    bidNtceNm: str,
+    bssamt: int,
+    Aamt: int,
+    urate: float,
+    preamt: int,
+    preRate: float,
+    preRate2: float,
 ) -> dict:
     try:
         sql = text("""
@@ -87,23 +104,26 @@ def save_predict(
             )
         """)
 
-        result = db.execute(sql, {
-            "bidNtceNo": bidNtceNo,
-            "bidNtceNm": bidNtceNm,
-            "bssamt":    bssamt,
-            "Aamt":      Aamt,
-            "urate":     urate,
-            "preamt":    preamt,
-            "preRate":   preRate,
-            "preRate2":  preRate2,
-            "betc":      bbscode,   # bbscode → betc 컬럼에 저장
-            "sfcode":    sfcode,
-        })
+        result = db.execute(
+            sql,
+            {
+                "bidNtceNo": bidNtceNo,
+                "bidNtceNm": bidNtceNm,
+                "bssamt": bssamt,
+                "Aamt": Aamt,
+                "urate": urate,
+                "preamt": preamt,
+                "preRate": preRate,
+                "preRate2": preRate2,
+                "betc": bbscode,  # bbscode → betc 컬럼에 저장
+                "sfcode": sfcode,
+            },
+        )
         db.commit()
 
         return {
             "status": "success",
-            "data":   {"psn": result.lastrowid},
+            "data": {"psn": result.lastrowid},
         }
 
     except Exception as e:
@@ -115,13 +135,13 @@ def save_predict(
 # 4. 예측 목록 조회
 # ────────────────────────────────────────────
 def get_predict_list(
-        db,
-        fdate: Optional[str] = None,
-        tdate: Optional[str] = None,
-        bidNtceNo: Optional[str] = None,
-        bidNtceNm: Optional[str] = None,
-        page: int = 1,
-        page_size: int = 20,
+    db,
+    fdate: Optional[str] = None,
+    tdate: Optional[str] = None,
+    bidNtceNo: Optional[str] = None,
+    bidNtceNm: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
 ) -> dict:
     try:
         # where_clause 조각은 전부 하드코딩 문자열 + SQLAlchemy 바인딩 파라미터만 사용
@@ -151,7 +171,7 @@ def get_predict_list(
         count_sql = text(f"SELECT COUNT(*) FROM bid_predict WHERE {where_clause}")
         total = db.execute(count_sql, count_params).scalar()
 
-        params["limit"]  = page_size
+        params["limit"] = page_size
         params["offset"] = offset
 
         list_sql = text(f"""
@@ -170,10 +190,10 @@ def get_predict_list(
         rows = db.execute(list_sql, params).mappings().all()
 
         return {
-            "status":      "success",
-            "data":        [dict(r) for r in rows],
-            "total":       total,
-            "page":        page,
+            "status": "success",
+            "data": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
             "total_pages": -(-total // page_size),  # ceiling division
         }
 
